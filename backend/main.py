@@ -97,6 +97,15 @@ def handle_frontend_message(data):
         model_type = data.get('model_type', 'cnn')
         detector.switch_model(model_type)
 
+    elif msg_type == 'toggle_camera':
+        state = data.get('state', True)
+        if state:
+            camera.start()
+            print("Backend: Camera started by user.")
+        else:
+            camera.stop()
+            print("Backend: Camera stopped by user.")
+
 def main_loop():
     global is_running, focus_active
     global current_negative_emotion, negative_emotion_start_time, bubble_triggered

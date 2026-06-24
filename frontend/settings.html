@@ -31,31 +31,31 @@
 
     /* ── Left Sidebar Navigation ─────────────── */
     .sidebar {
-      width: 140px;
+      width: 200px;
       background: #ffffff;
       border-right: 1px solid #e4e8ee;
       display: flex;
       flex-direction: column;
-      padding: 12px 0;
-      gap: 2px;
+      padding: 18px 0;
+      gap: 4px;
       flex-shrink: 0;
     }
 
     .sidebar-label {
-      font-size: 10px;
+      font-size: 14px;
       font-weight: 600;
       color: #9ba8b8;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      padding: 4px 14px 6px;
+      padding: 8px 20px 10px;
     }
 
     .nav-item {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 8px 14px;
-      font-size: 12px;
+      gap: 12px;
+      padding: 12px 20px;
+      font-size: 16px;
       font-weight: 500;
       color: #5a6a7e;
       cursor: pointer;
@@ -77,8 +77,8 @@
     }
 
     .nav-icon {
-      font-size: 14px;
-      width: 18px;
+      font-size: 20px;
+      width: 24px;
       text-align: center;
       flex-shrink: 0;
     }
@@ -86,8 +86,8 @@
     /* ── Right Content Panel ─────────────────── */
     .content {
       flex: 1;
-      padding: 20px 22px;
-      overflow: hidden;
+      padding: 30px 32px;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
     }
@@ -95,7 +95,7 @@
     .page {
       display: none;
       flex-direction: column;
-      gap: 16px;
+      gap: 24px;
       flex: 1;
     }
 
@@ -104,34 +104,34 @@
     }
 
     .page-title {
-      font-size: 15px;
+      font-size: 22px;
       font-weight: 700;
       color: #1a2535;
-      padding-bottom: 10px;
+      padding-bottom: 15px;
       border-bottom: 1px solid #e4e8ee;
     }
 
     /* ── Form Controls ───────────────────────── */
     .field-label {
-      font-size: 11px;
+      font-size: 16px;
       font-weight: 600;
       color: #6b7a8d;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
       display: block;
     }
 
     .radio-group {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 12px;
     }
 
     .radio-option {
       display: flex;
       align-items: flex-start;
-      gap: 10px;
-      padding: 8px 10px;
-      border-radius: 8px;
+      gap: 15px;
+      padding: 12px 15px;
+      border-radius: 10px;
       border: 1.5px solid #e4e8ee;
       background: #ffffff;
       cursor: pointer;
@@ -144,7 +144,8 @@
     }
 
     .radio-option input[type="radio"] {
-      margin-top: 1px;
+      margin-top: 2px;
+      transform: scale(1.2);
       accent-color: #39c5bb;
       cursor: pointer;
       flex-shrink: 0;
@@ -157,63 +158,63 @@
     .option-text {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
     }
 
     .option-name {
-      font-size: 12px;
+      font-size: 16px;
       font-weight: 600;
       color: #2c3e50;
       transition: color 0.2s;
     }
 
     .option-desc {
-      font-size: 10px;
+      font-size: 14px;
       color: #9ba8b8;
-      line-height: 1.3;
+      line-height: 1.4;
     }
 
     .tip {
-      font-size: 10px;
+      font-size: 14px;
       color: #b0bec8;
       line-height: 1.5;
-      padding: 8px 10px;
+      padding: 12px 15px;
       background: #f9fbfd;
-      border-radius: 6px;
+      border-radius: 8px;
       border: 1px solid #e8edf2;
     }
 
     /* ── About page ──────────────────────────── */
     .about-logo {
-      font-size: 32px;
+      font-size: 48px;
       text-align: center;
-      margin-bottom: 4px;
+      margin-bottom: 8px;
     }
 
     .about-name {
-      font-size: 14px;
+      font-size: 22px;
       font-weight: 700;
       text-align: center;
       color: #1a2535;
     }
 
     .about-ver {
-      font-size: 10px;
+      font-size: 14px;
       text-align: center;
       color: #9ba8b8;
-      margin-top: 2px;
+      margin-top: 4px;
     }
 
     .about-desc {
-      font-size: 11px;
+      font-size: 15px;
       color: #6b7a8d;
       text-align: center;
-      line-height: 1.5;
-      padding: 0 10px;
+      line-height: 1.6;
+      padding: 0 15px;
     }
 
     .about-link {
-      font-size: 11px;
+      font-size: 15px;
       text-align: center;
       color: #39c5bb;
       text-decoration: none;
@@ -235,6 +236,11 @@
       <div class="nav-item" data-page="about">
         <span class="nav-icon">💙</span>
         <span>About</span>
+      </div>
+
+      <div class="nav-item" data-page="appearance">
+        <span class="nav-icon">🎨</span>
+        <span>Appearance</span>
       </div>
     </nav>
 
@@ -293,6 +299,42 @@
         <a class="about-link" href="https://github.com/momo325/miku-cure" target="_blank">
           github.com/momo325/miku-cure
         </a>
+      </div>
+
+      <!-- Page: Appearance -->
+      <div class="page" id="page-appearance">
+        <div class="page-title">Appearance</div>
+
+        <div>
+          <span class="field-label">Window Size</span>
+          <div class="radio-group">
+
+            <label class="radio-option">
+              <input type="radio" name="size-select" value="small">
+              <div class="option-text">
+                <span class="option-name">Small</span>
+                <span class="option-desc">67% scaling</span>
+              </div>
+            </label>
+
+            <label class="radio-option">
+              <input type="radio" name="size-select" value="medium" checked>
+              <div class="option-text">
+                <span class="option-name">Medium</span>
+                <span class="option-desc">Default size</span>
+              </div>
+            </label>
+
+            <label class="radio-option">
+              <input type="radio" name="size-select" value="large">
+              <div class="option-text">
+                <span class="option-name">Large</span>
+                <span class="option-desc">150% scaling</span>
+              </div>
+            </label>
+
+          </div>
+        </div>
       </div>
 
     </div>

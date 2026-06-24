@@ -7,6 +7,7 @@ const projectRoot = path.join(__dirname, '..');
 const gifDir = path.join(projectRoot, 'miku', 'gif');
 const danceDir = path.join(projectRoot, 'miku', 'dance');
 const singDir = path.join(projectRoot, 'miku', 'sing');
+const assetsDir = path.join(projectRoot, 'frontend', 'assets');
 
 // Cache resource file lists
 let gifFiles = [];
@@ -33,9 +34,9 @@ try {
   console.error("Error reading Miku directories:", err);
 }
 
-// Helper: switch Miku video to a specific file in gif dir (looped, muted)
+// Helper: switch Miku video to a specific file in assets dir (looped, muted)
 function playSingStateVideo(filename) {
-  const p = path.join(gifDir, filename);
+  const p = path.join(assetsDir, filename);
   if (!fs.existsSync(p)) {
     // Fallback to normal daily GIF if special video not found
     playRandomDailyVideo();
@@ -109,9 +110,9 @@ closeBtn.addEventListener('click', () => {
   window.close();
 });
 
-// 1. Custom JS-Based Window Dragging
+// Custom JS-Based Window Dragging (Drift-free)
 let isDragging = false;
-let startX, startY;
+let mouseStartX, mouseStartY;
 
 document.addEventListener('mousedown', (e) => {
   if (
@@ -121,27 +122,50 @@ document.addEventListener('mousedown', (e) => {
     e.target.closest('.report-card') ||
     e.target.closest('.timer-overlay') ||
     e.target.closest('.talent-overlay') ||
-    e.target.closest('.media-player-overlay')
+    e.target.closest('.media-player-overlay') ||
+    e.target.closest('.emotion-badge')
   ) {
     return;
   }
   isDragging = true;
-  startX = e.screenX;
-  startY = e.screenY;
+  mouseStartX = e.screenX;
+  mouseStartY = e.screenY;
+  ipcRenderer.send('drag-start');
 });
 
 document.addEventListener('mousemove', (e) => {
   if (!isDragging) return;
-  const dx = e.screenX - startX;
-  const dy = e.screenY - startY;
-  startX = e.screenX;
-  startY = e.screenY;
+  const dx = e.screenX - mouseStartX;
+  const dy = e.screenY - mouseStartY;
   ipcRenderer.send('window-drag', { dx, dy });
 });
 
 document.addEventListener('mouseup', () => {
   isDragging = false;
 });
+
+// Emotion badge click to toggle camera
+let isCameraConnected = true;
+const emotionBadge = document.getElementById('emotion-badge');
+if (emotionBadge) {
+  emotionBadge.addEventListener('click', () => {
+    isCameraConnected = !isCameraConnected;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'toggle_camera', state: isCameraConnected }));
+    }
+    if (!isCameraConnected) {
+      const emojiEl = document.getElementById('emotion-emoji');
+      const labelEl = document.getElementById('emotion-label');
+      const confEl  = document.getElementById('emotion-conf');
+      if (emojiEl) emojiEl.textContent = '🔌';
+      if (labelEl) labelEl.textContent = '已断开';
+      if (confEl)  confEl.textContent  = '--%';
+    } else {
+      const labelEl = document.getElementById('emotion-label');
+      if (labelEl) labelEl.textContent = '连接中...';
+    }
+  });
+}
 
 // 2. Miku Animation Player State Machine
 function playRandomDailyVideo() {
@@ -493,9 +517,12 @@ function connectBackend() {
         };
         const info    = emotionMap[data.emotion] || { emoji: '😐', label: '中性' };
         const percent = Math.round(data.confidence * 100);
+        const emojiEl = document.getElementById('emotion-emoji');
         const labelEl = document.getElementById('emotion-label');
         const confEl  = document.getElementById('emotion-conf');
-        if (labelEl) labelEl.textContent = info.emoji + ' ' + info.label;
+        if (!isCameraConnected) return; // Do not update UI if disconnected manually
+        if (emojiEl) emojiEl.textContent = info.emoji;
+        if (labelEl) labelEl.textContent = info.label;
         if (confEl)  confEl.textContent  = percent + '%';
       }
       
@@ -585,6 +612,10 @@ reportCloseBtn.addEventListener('click', () => {
 // App Initialization
 mikuState = 'daily';
 playRandomDailyVideo();
+
+// Initial Window Size Setup
+const currentWindowSize = localStorage.getItem('miku-window-size') || 'medium';
+ipcRenderer.send('size-changed', currentWindowSize);
 
 // Launch backend as child process bound to this Electron window
 // Detect python executable (prefer .venv)

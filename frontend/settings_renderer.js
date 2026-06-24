@@ -30,4 +30,17 @@ document.addEventListener('DOMContentLoaded', () => {
       ipcRenderer.send('model-changed', selectedModel);
     });
   });
+
+  // ── Appearance selection ────────────────────────────
+  const savedSize = localStorage.getItem('miku-window-size') || 'medium';
+  const savedSizeRadio = document.querySelector(`input[name="size-select"][value="${savedSize}"]`);
+  if (savedSizeRadio) savedSizeRadio.checked = true;
+
+  document.getElementsByName('size-select').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const selectedSize = e.target.value;
+      localStorage.setItem('miku-window-size', selectedSize);
+      ipcRenderer.send('size-changed', selectedSize);
+    });
+  });
 });

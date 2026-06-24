@@ -45,12 +45,23 @@ function createWindow() {
   });
 }
 
-// 1. IPC listener for custom window dragging
+// 1. IPC listener for custom window dragging (Drift-free absolute positioning)
+let dragStartBounds;
+ipcMain.on('drag-start', () => {
+  if (mainWindow) {
+    dragStartBounds = mainWindow.getBounds();
+  }
+});
+
 ipcMain.on('window-drag', (event, delta) => {
-  if (!mainWindow) return;
+  if (!mainWindow || !dragStartBounds) return;
   const { dx, dy } = delta;
-  const [x, y] = mainWindow.getPosition();
-  mainWindow.setPosition(x + dx, y + dy);
+  mainWindow.setBounds({
+    x: dragStartBounds.x + dx,
+    y: dragStartBounds.y + dy,
+    width: dragStartBounds.width,
+    height: dragStartBounds.height
+  });
 });
 
 // 2. IPC listener to open settings window in a separate container
@@ -61,8 +72,8 @@ ipcMain.on('open-settings', () => {
   }
 
   settingsWindow = new BrowserWindow({
-    width: 480,
-    height: 320,
+    width: 720,
+    height: 480,
     title: "Miku Settings",
     resizable: false,
     minimizable: false,
@@ -86,6 +97,19 @@ ipcMain.on('model-changed', (event, selectedModel) => {
   if (mainWindow) {
     mainWindow.webContents.send('change-model', selectedModel);
   }
+});
+
+// 4. Handle window size change
+ipcMain.on('size-changed', (event, size) => {
+  if (!mainWindow) return;
+  let scale = 1.0;
+  if (size === 'small') scale = 0.67;
+  else if (size === 'large') scale = 1.5;
+  
+  const width = Math.round(208 * scale);
+  const height = Math.round(208 * scale);
+  mainWindow.setSize(width, height);
+  mainWindow.webContents.setZoomFactor(scale);
 });
 
 app.on('ready', createWindow);

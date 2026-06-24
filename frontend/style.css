@@ -53,6 +53,11 @@ body {
   cursor: move;
 }
 
+/* Ensure buttons and interactables don't trigger drag */
+button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .media-player-overlay {
+  -webkit-app-region: no-drag;
+}
+
 /* Miku Display Area (exact 200x200 container) */
 .miku-display-area {
   width: 200px;
@@ -102,13 +107,25 @@ body {
   background: rgba(0, 0, 0, 0.40);
   border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 10px;
-  padding: 3px 9px;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.emotion-emoji {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.emotion-text {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0;
-  cursor: default;
-  line-height: 1.2;
 }
 
 .emotion-label {
@@ -369,16 +386,12 @@ body {
   color: #ff5f56;
 }
 
-/* Dance close X: simple 2px black outline shadow, no gradient bg */
+/* Dance close X: simple, no outline, no background */
 .dance-close-overlay .player-btn.close-btn {
   font-size: 16px;
   font-weight: 700;
   color: #ff5f56;
-  text-shadow:
-    -2px -2px 0 rgba(0,0,0,0.7),
-     2px -2px 0 rgba(0,0,0,0.7),
-    -2px  2px 0 rgba(0,0,0,0.7),
-     2px  2px 0 rgba(0,0,0,0.7);
+  text-shadow: none;
   padding: 4px 6px;
 }
 
