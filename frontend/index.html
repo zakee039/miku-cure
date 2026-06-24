@@ -19,7 +19,10 @@
 
         <!-- Floating Transparent Header (inside GIF container at top) -->
         <div class="viewport-header" id="viewport-header">
-          <div class="emotion-badge" id="emotion-badge">😐 --%</div>
+          <div class="emotion-badge" id="emotion-badge">
+            <span class="emotion-label" id="emotion-label">中性</span>
+            <span class="emotion-conf" id="emotion-conf">--%</span>
+          </div>
           <div class="control-icons">
             <button class="ctrl-btn" id="timer-toggle" title="开始专注 (番茄钟)">🍅</button>
             <button class="ctrl-btn" id="settings-toggle" title="选择检测模型">⚙️</button>
@@ -46,9 +49,8 @@
 
         <!-- Overlay 2: Talent option list (strictly at bottom inside GIF container) -->
         <div class="talent-overlay hide" id="talent-panel">
-          <button class="talent-btn" id="action-dance">💃 跳舞</button>
-          <button class="talent-btn" id="action-sing">🎵 唱歌</button>
-          <button class="talent-btn" id="action-stop-talent">🛑 停止</button>
+          <button class="talent-btn" id="action-dance">跳舞</button>
+          <button class="talent-btn" id="action-sing">唱歌</button>
         </div>
 
         <!-- Overlay 3: Sing Mode Media Player (strictly at bottom inside GIF container, single-row layout) -->

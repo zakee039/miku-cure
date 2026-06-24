@@ -185,6 +185,8 @@ function startDance() {
   timerPanel.classList.add('hide');
   mediaPlayerPanel.classList.add('hide');
   danceClosePanel.classList.remove('hide');  // show red X
+  // Fold the header bar up during dance
+  document.getElementById('viewport-header').classList.add('header-folded');
   
   const randomFile = danceFiles[Math.floor(Math.random() * danceFiles.length)];
   mikuVideo.src = 'file:///' + path.join(danceDir, randomFile).replace(/\\/g, '/');
@@ -251,6 +253,8 @@ function stopSingOrDance() {
   mikuVideo.muted = true;
   mediaPlayerPanel.classList.add('hide');
   danceClosePanel.classList.add('hide');  // hide red X
+  // Restore header
+  document.getElementById('viewport-header').classList.remove('header-folded');
   updateStatus("😐 正在静静陪伴你", "#39c5bb");
   playRandomDailyVideo();
 }
@@ -484,17 +488,20 @@ function connectBackend() {
       // Real-time emotion update
       if (data.type === 'emotion_update') {
         const emotionMap = {
-          'happy': '😊',
-          'neutral': '😐',
-          'sadness': '😔',
-          'anger': '😠',
-          'fear': '😨',
-          'disgust': '🤢',
-          'surprise': '😲'
+          'happy':   { emoji: '😊', label: '开心' },
+          'neutral': { emoji: '😐', label: '中性' },
+          'sadness': { emoji: '😔', label: '悲伤' },
+          'anger':   { emoji: '😠', label: '憤怒' },
+          'fear':    { emoji: '😨', label: '恐惧' },
+          'disgust': { emoji: '🤢', label: '厌恶' },
+          'surprise':{ emoji: '😲', label: '惊讶' }
         };
-        const emoji = emotionMap[data.emotion] || '😐';
+        const info    = emotionMap[data.emotion] || { emoji: '😐', label: '中性' };
         const percent = Math.round(data.confidence * 100);
-        document.getElementById('emotion-badge').textContent = `${emoji} ${percent}%`;
+        const labelEl = document.getElementById('emotion-label');
+        const confEl  = document.getElementById('emotion-conf');
+        if (labelEl) labelEl.textContent = info.emoji + ' ' + info.label;
+        if (confEl)  confEl.textContent  = percent + '%';
       }
       
       // LLM bubble trigger

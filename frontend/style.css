@@ -61,8 +61,8 @@ body {
   border-radius: 20px;
   overflow: hidden;
   background: rgba(25, 35, 40, 0.4);
-  border: 1px solid var(--border-glass);
-  box-shadow: var(--shadow-glow);
+  border: none;
+  box-shadow: none;
   z-index: 20;
 }
 
@@ -78,27 +78,53 @@ body {
   position: absolute;
   top: 6px;
   left: 6px;
-  width: 188px; /* 200px - 12px margin padding */
-  height: 24px;
+  width: 188px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   z-index: 100;
   background: transparent;
   border: none;
+  /* Fold-up animation support */
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+  transform-origin: top center;
 }
 
-/* Left: Emotion badge with slight translucent background for readability */
+.viewport-header.header-folded {
+  transform: translateY(-40px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Left: Emotion badge - two-line layout (label + confidence), 2x size */
 .emotion-badge {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 1px 5px;
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--text-primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.40);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  padding: 3px 9px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
   cursor: default;
+  line-height: 1.2;
+}
+
+.emotion-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  white-space: nowrap;
+}
+
+.emotion-conf {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--miku-cyan);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  white-space: nowrap;
 }
 
 /* Right: Control icons toolbar */
@@ -293,7 +319,7 @@ body {
   justify-content: space-between;
 }
 
-/* Overlay 4: Dance Mode Close Button (bottom-right red X, same row height as player) */
+/* Overlay 4: Dance Mode Close Button (bottom-right red X) */
 .dance-close-overlay {
   position: absolute;
   bottom: 0;
@@ -303,7 +329,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  background: linear-gradient(to left, rgba(15,25,30,0.55) 0%, transparent 100%);
+  background: none;
   border-radius: 0 0 20px 0;
   z-index: 80;
 }
@@ -341,6 +367,19 @@ body {
 
 .player-btn.close-btn:hover {
   color: #ff5f56;
+}
+
+/* Dance close X: simple 2px black outline shadow, no gradient bg */
+.dance-close-overlay .player-btn.close-btn {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ff5f56;
+  text-shadow:
+    -2px -2px 0 rgba(0,0,0,0.7),
+     2px -2px 0 rgba(0,0,0,0.7),
+    -2px  2px 0 rgba(0,0,0,0.7),
+     2px  2px 0 rgba(0,0,0,0.7);
+  padding: 4px 6px;
 }
 
 /* Song title marquee scrolling text container */
