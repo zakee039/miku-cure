@@ -13,9 +13,15 @@ let gifFiles = [];
 let danceFiles = [];
 let singFiles = [];
 
+// Special state videos for the sing player
+const SING_VIDEO  = 'MIKU-SING.mp4';
+const PAUSE_VIDEO = 'MIKU-PAUSE.mp4';
+const SPECIAL_VIDEOS = new Set([SING_VIDEO, PAUSE_VIDEO]);
+
 try {
   if (fs.existsSync(gifDir)) {
-    gifFiles = fs.readdirSync(gifDir).filter(f => f.endsWith('.mp4'));
+    // Exclude special sing-player videos from daily rotation
+    gifFiles = fs.readdirSync(gifDir).filter(f => f.endsWith('.mp4') && !SPECIAL_VIDEOS.has(f));
   }
   if (fs.existsSync(danceDir)) {
     danceFiles = fs.readdirSync(danceDir).filter(f => f.endsWith('.mp4'));
@@ -25,6 +31,21 @@ try {
   }
 } catch (err) {
   console.error("Error reading Miku directories:", err);
+}
+
+// Helper: switch Miku video to a specific file in gif dir (looped, muted)
+function playSingStateVideo(filename) {
+  const p = path.join(gifDir, filename);
+  if (!fs.existsSync(p)) {
+    // Fallback to normal daily GIF if special video not found
+    playRandomDailyVideo();
+    return;
+  }
+  clearTimeout(rotationTimer);
+  mikuVideo.src = 'file:///' + p.replace(/\\/g, '/');
+  mikuVideo.muted = true;
+  mikuVideo.loop = true;
+  mikuVideo.play().catch(err => console.error('Sing-state video error:', err));
 }
 
 // DOM Elements
@@ -206,10 +227,8 @@ function startSingPlaylist(index = 0) {
   playerPlay.textContent = "||";
   updateStatus("🎵 正在为你唱歌中...", "#bf73ff");
   
-  // Ensure daily GIF keeps loops during singing
-  mikuVideo.loop = true;
-  mikuVideo.muted = true;
-  playRandomDailyVideo();
+  // Show MIKU-SING looping video while music is playing
+  playSingStateVideo(SING_VIDEO);
   
   currentAudio.onended = () => {
     // Auto next song
@@ -272,11 +291,15 @@ playerPlay.addEventListener('click', () => {
     isPlayingSing = false;
     playerPlay.textContent = ">";
     updateStatus("⏸️ 音乐已暂停", "#bf73ff");
+    // Switch to MIKU-PAUSE looping video
+    playSingStateVideo(PAUSE_VIDEO);
   } else {
     currentAudio.play().catch(e => console.error(e));
     isPlayingSing = true;
     playerPlay.textContent = "||";
     updateStatus("🎵 正在为你唱歌中...", "#bf73ff");
+    // Switch back to MIKU-SING looping video
+    playSingStateVideo(SING_VIDEO);
   }
 });
 
@@ -552,4 +575,12 @@ reportCloseBtn.addEventListener('click', () => {
 // App Initialization
 mikuState = 'daily';
 playRandomDailyVideo();
-connectBackend();
+
+// Launch backend as child process bound to this Electron window
+// Detect python executable (prefer .venv)
+const venvPython = path.join(projectRoot, 'backend', '.venv', 'Scripts', 'python.exe');
+const pythonExe = fs.existsSync(venvPython) ? venvPython : 'python';
+ipcRenderer.send('start-backend', pythonExe);
+
+// Connect WebSocket after a short delay to let backend start
+setTimeout(connectBackend, 2000);

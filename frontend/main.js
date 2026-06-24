@@ -1,8 +1,10 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
+const { spawn } = require('child_process');
 
 let mainWindow;
 let settingsWindow = null;
+let backendProcess = null;
 
 function createWindow() {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
@@ -82,6 +84,31 @@ ipcMain.on('model-changed', (event, selectedModel) => {
 });
 
 app.on('ready', createWindow);
+
+// Kill backend process when Electron fully quits
+app.on('will-quit', () => {
+  if (backendProcess) {
+    try { backendProcess.kill(); } catch (e) {}
+    backendProcess = null;
+  }
+});
+
+// IPC: renderer asks main to launch backend
+ipcMain.on('start-backend', (event, pythonExe) => {
+  if (backendProcess) return; // already running
+  const backendDir = path.join(__dirname, '..', 'backend');
+  backendProcess = spawn(pythonExe, ['main.py'], {
+    cwd: backendDir,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  backendProcess.stdout.on('data', d => process.stdout.write('[Backend] ' + d));
+  backendProcess.stderr.on('data', d => process.stderr.write('[Backend] ' + d));
+  backendProcess.on('exit', code => {
+    console.log(`[Backend] exited with code ${code}`);
+    backendProcess = null;
+  });
+  console.log('[Main] Backend process started, PID:', backendProcess.pid);
+});
 
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') {
