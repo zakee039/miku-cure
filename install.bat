@@ -1,11 +1,10 @@
 @echo off
-chcp 65001 >nul
 setlocal
 
 echo.
-echo  ╔══════════════════════════════════════════╗
-echo  ║   Miku Cure - 一键安装脚本  v0.1.0       ║
-echo  ╚══════════════════════════════════════════╝
+echo  +==========================================+
+echo  ^|   Miku Cure - Install Script  v0.1.0    ^|
+echo  +==========================================+
 echo.
 
 set "ROOT=%~dp0"
@@ -13,87 +12,88 @@ set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
 set "VENV=%BACKEND%\.venv"
 
-:: ── 检查 Python ───────────────────────────────
-echo [1/4] 检查 Python 环境...
+:: -- Check Python --
+echo [1/4] Checking Python...
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo  ✗ 未检测到 Python，请先安装 Python 3.10+ 并添加到 PATH
+    echo  ERROR: Python not found. Please install Python 3.10+ and add it to PATH.
     pause
     exit /b 1
 )
-for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo  ✓ %%v
+for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo   OK: %%v
 
-:: ── 检查 Node.js ──────────────────────────────
-echo [2/4] 检查 Node.js 环境...
+:: -- Check Node.js --
+echo [2/4] Checking Node.js...
 node --version >nul 2>&1
 if errorlevel 1 (
-    echo  ✗ 未检测到 Node.js，请先安装 Node.js 18+ 并添加到 PATH
+    echo  ERROR: Node.js not found. Please install Node.js 18+ and add it to PATH.
     pause
     exit /b 1
 )
-for /f "tokens=*" %%v in ('node --version 2^>^&1') do echo  ✓ Node.js %%v
+for /f "tokens=*" %%v in ('node --version 2^>^&1') do echo   OK: Node.js %%v
 
-:: ── Python 虚拟环境与依赖 ─────────────────────
+:: -- Python virtual environment and dependencies --
 echo.
-echo [3/4] 安装 Python 依赖（虚拟环境）...
+echo [3/4] Installing Python dependencies...
 if not exist "%VENV%\Scripts\python.exe" (
-    echo  → 创建虚拟环境...
+    echo   Creating virtual environment...
     python -m venv "%VENV%"
     if errorlevel 1 (
-        echo  ✗ 虚拟环境创建失败
+        echo  ERROR: Failed to create virtual environment.
         pause
         exit /b 1
     )
 )
 
-echo  → 升级 pip...
+echo   Upgrading pip...
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip -q
 
-:: 检查是否存在本地 torch whl 包
+:: Check for local torch .whl package
 set "TORCH_WHL="
 for %%f in ("%ROOT%torch-*.whl") do set "TORCH_WHL=%%f"
 
 if defined TORCH_WHL (
-    echo  → 检测到本地 PyTorch 安装包，从本地安装...
+    echo   Found local PyTorch package, installing from file...
     "%VENV%\Scripts\pip.exe" install "%TORCH_WHL%" -q
 ) else (
-    echo  → 从 PyPI 安装 CPU 版 PyTorch（如需 GPU 版请手动安装）...
+    echo   Installing CPU-only PyTorch from PyPI...
+    echo   (For GPU support, install the appropriate CUDA build manually.)
     "%VENV%\Scripts\pip.exe" install torch torchvision --index-url https://download.pytorch.org/whl/cpu -q
 )
 
-echo  → 安装其余依赖...
+echo   Installing remaining Python dependencies...
 "%VENV%\Scripts\pip.exe" install -r "%BACKEND%\requirements.txt" -q
 if errorlevel 1 (
-    echo  ✗ Python 依赖安装失败，请检查 requirements.txt
+    echo  ERROR: Failed to install Python dependencies. Check requirements.txt.
     pause
     exit /b 1
 )
-echo  ✓ Python 依赖安装完成
+echo   OK: Python dependencies installed.
 
-:: ── Node.js 依赖 ──────────────────────────────
+:: -- Node.js dependencies --
 echo.
-echo [4/4] 安装 Node.js 依赖（Electron）...
+echo [4/4] Installing Node.js dependencies (Electron)...
 cd /d "%FRONTEND%"
 call npm install --prefer-offline
 if errorlevel 1 (
-    echo  ✗ npm install 失败
+    echo  ERROR: npm install failed.
     pause
     exit /b 1
 )
-echo  ✓ Node.js 依赖安装完成
+echo   OK: Node.js dependencies installed.
 
-:: ── 完成 ──────────────────────────────────────
+:: -- Done --
 echo.
-echo  ╔══════════════════════════════════════════╗
-echo  ║   ✓ 安装完成！运行 start.bat 启动应用    ║
-echo  ╚══════════════════════════════════════════╝
+echo  +==========================================+
+echo  ^|   Installation complete!                 ^|
+echo  ^|   Run start.bat to launch the app.       ^|
+echo  +==========================================+
 echo.
 
-:: 检查 .env 文件
 if not exist "%ROOT%.env" (
-    echo  ⚠  提示：未检测到 .env 文件
-    echo     请在项目根目录创建 .env 并填入：
-    echo     DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
+    echo  WARNING: .env file not found.
+    echo  Create .env in the project root and add:
+    echo    DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
     echo.
 )
 
