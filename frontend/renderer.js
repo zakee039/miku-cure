@@ -43,7 +43,14 @@ function playSingStateVideo(filename) {
     return;
   }
   clearTimeout(rotationTimer);
-  mikuVideo.src = 'file:///' + p.replace(/\\/g, '/');
+  const targetSrc = 'file:///' + p.replace(/\\/g, '/');
+  
+  // Prevent restarting the video if it's already playing the target file
+  if (mikuVideo.src === targetSrc || decodeURI(mikuVideo.src) === targetSrc) {
+    return;
+  }
+  
+  mikuVideo.src = targetSrc;
   mikuVideo.muted = true;
   mikuVideo.loop = true;
   mikuVideo.play().catch(err => console.error('Sing-state video error:', err));
@@ -77,7 +84,8 @@ const actionDance = document.getElementById('action-dance');
 const actionSing  = document.getElementById('action-sing');
 
 const mediaPlayerPanel = document.getElementById('media-player-panel');
-const danceClosePanel  = document.getElementById('dance-close-panel');
+const danceControlsPanel = document.getElementById('dance-controls-panel');
+const danceNextBtn     = document.getElementById('dance-next');
 const danceCloseBtn    = document.getElementById('dance-close');
 const songTitle = document.getElementById('song-title');
 const playerPrev = document.getElementById('player-prev');
@@ -102,6 +110,7 @@ let isPaused = false;
 let ws = null;
 let focusStartTimeStr = "";
 let currentSingIndex = 0;
+let currentDanceIndex = 0;
 let isPlayingSing = false;
 let currentModelType = localStorage.getItem('miku-model-type') || 'cnn';
 
@@ -192,7 +201,7 @@ mikuVideo.addEventListener('dblclick', () => {
 });
 
 // 3. Play Dance mode
-function startDance() {
+function startDance(index = null) {
   if (danceFiles.length === 0) {
     showChatBubble("Miku 发现没有放跳舞视频哦（在 miku/dance 目录）", false);
     return;
@@ -207,11 +216,17 @@ function startDance() {
   talentPanel.classList.add('hide');
   timerPanel.classList.add('hide');
   mediaPlayerPanel.classList.add('hide');
-  danceClosePanel.classList.remove('hide');  // show red X
+  danceControlsPanel.classList.remove('hide');  // show controls
   // Fold the header bar up during dance
   document.getElementById('viewport-header').classList.add('header-folded');
   
-  const randomFile = danceFiles[Math.floor(Math.random() * danceFiles.length)];
+  if (index === null || typeof index !== 'number') {
+    currentDanceIndex = Math.floor(Math.random() * danceFiles.length);
+  } else {
+    currentDanceIndex = (index + danceFiles.length) % danceFiles.length;
+  }
+  
+  const randomFile = danceFiles[currentDanceIndex];
   mikuVideo.src = 'file:///' + path.join(danceDir, randomFile).replace(/\\/g, '/');
   mikuVideo.muted = false;
   mikuVideo.loop = false;
@@ -275,7 +290,7 @@ function stopSingOrDance() {
   mikuVideo.loop = true;
   mikuVideo.muted = true;
   mediaPlayerPanel.classList.add('hide');
-  danceClosePanel.classList.add('hide');  // hide red X
+  danceControlsPanel.classList.add('hide');  // hide controls
   // Restore header
   document.getElementById('viewport-header').classList.remove('header-folded');
   updateStatus("😐 正在静静陪伴你", "#39c5bb");
@@ -332,6 +347,10 @@ playerPlay.addEventListener('click', () => {
 
 playerClose.addEventListener('click', () => {
   stopSingOrDance();
+});
+
+danceNextBtn.addEventListener('click', () => {
+  startDance(currentDanceIndex + 1);
 });
 
 danceCloseBtn.addEventListener('click', () => {

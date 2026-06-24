@@ -343,18 +343,19 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   justify-content: space-between;
 }
 
-/* Overlay 4: Dance Mode Close Button (bottom-right red X) */
-.dance-close-overlay {
+/* Overlay 4: Dance Mode Controls (left: next, right: close) */
+.dance-controls-overlay {
   position: absolute;
   bottom: 0;
+  left: 0;
   right: 0;
   height: 34px;
   padding: 0 8px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   background: none;
-  border-radius: 0 0 20px 0;
+  border-radius: 0 0 20px 20px;
   z-index: 80;
 }
 
@@ -393,13 +394,20 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   color: #ff5f56;
 }
 
-/* Dance close X: simple, no outline, no background */
-.dance-close-overlay .player-btn.close-btn {
+/* Dance controls (next and close): simple, no outline, no background */
+.dance-controls-overlay .player-btn {
   font-size: 16px;
   font-weight: 700;
-  color: #ff5f56;
   text-shadow: none;
   padding: 4px 6px;
+}
+
+.dance-controls-overlay .next-btn {
+  color: #39c5bb;
+}
+
+.dance-controls-overlay .close-btn {
+  color: #ff5f56;
 }
 
 /* Song title marquee scrolling text container */
