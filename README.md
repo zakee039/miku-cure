@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/version-v0.1.0-ff69b4?style=for-the-badge" />
+<img src="https://img.shields.io/badge/version-v0.2.0-ff69b4?style=for-the-badge" />
 <img src="https://img.shields.io/badge/platform-Windows-0078d7?style=for-the-badge&logo=windows" />
 <img src="https://img.shields.io/badge/Electron-31.7.7-47848f?style=for-the-badge&logo=electron" />
 <img src="https://img.shields.io/badge/PyTorch-2.6.0-ee4c2c?style=for-the-badge&logo=pytorch" />
@@ -24,10 +24,16 @@
 
 Miku Cure 是一个运行在 Windows 桌面右下角的透明悬浮小宠物。它通过摄像头实时识别你的表情情绪，结合番茄钟工作法，在你专注学习时默默陪伴，在你持续低落时主动用 AI 生成的暖心话语来鼓励你。
 
+### 🎉 v0.2.0 更新亮点
+- **一键运行支持**：新增 `install.bat` 和 `start.bat`，双击即可完成依赖安装与前后端联合启动/关闭。
+- **全新 UI 体验**：底部才艺面板（跳舞/唱歌）重构为实体智能开关风格（奶白色调，无延迟极速响应），新增了完美防漂移的原生窗口拖拽支持。
+- **媒体播放优化**：跳舞模式新增“下一首”循环切换按钮，唱歌模式修复了切歌时视频黑屏闪烁的问题，特定状态动作移至专属 `assets` 目录。
+- **设置面板升级**：设置界面整体放大 1.5 倍，支持滚动，加入界面大小调整选项。
+
 ### 🖼️ 界面预览
 
-| 桌面宠物主窗口 | 设置窗口 |
-|:---:|:---:|
+| 桌面宠物主窗口                                                | 设置窗口               |
+|:------------------------------------------------------:|:------------------:|
 | 200×200 透明悬浮，Miku GIF 循环播放 | 独立亮色设置窗口，支持热切换推理后端 |
 
 ### 🧠 系统架构
@@ -110,21 +116,11 @@ miku/
 └── sing/     # 歌曲 OGG 音频文件
 ```
 
-#### 6. 启动后端
+#### 6. 一键启动 (v0.2.0 新增)
 
-```bash
-cd backend
-.venv\Scripts\activate
-python main.py
-```
-
-#### 7. 启动前端
-
-```bash
-cd frontend
-npm install
-npm start
-```
+在项目根目录下：
+- **首次使用**：双击运行 `install.bat`，它会自动帮你创建虚拟环境、安装前后端所有依赖。
+- **日常启动**：双击运行 `start.bat`，它会自动启动后端服务并打开前端 Miku 窗口。（**关闭 Miku 窗口时，后端服务也会自动安全退出**）
 
 Miku 会出现在你的屏幕右下角 🎵
 
@@ -148,61 +144,71 @@ miku-cure/
 │   ├── style.css           # 初音主题样式（毛玻璃 / 微动画）
 │   ├── settings.html       # 设置窗口
 │   ├── settings_renderer.js # 设置窗口逻辑
+│   ├── assets/             # 特殊状态媒体库 (如 MIKU-SING/PAUSE)
 │   └── package.json
+├── install.bat             # 一键环境安装脚本
+├── start.bat               # 一键联合启动脚本
 └── README.md
 ```
 
 ### 🎨 功能详解
 
 #### 🔵 实时情绪识别
+
 - **采样频率**：1 FPS 低功耗后台采集
 - **人脸检测**：OpenCV Haar Cascades + MediaPipe（双重保障）
 - **情绪分类**：7 类（开心 😊 / 悲伤 😢 / 愤怒 😠 / 惊讶 😲 / 恐惧 😨 / 厌恶 🤢 / 中性 😐）
 - **防抖平滑**：滑动窗口多数投票，避免情绪闪烁
 
 #### 🍅 番茄钟
+
 - 自定义专注时长（默认 25 分钟）
 - 倒计时结束后自动生成当次情绪统计报告
 - 报告追加写入 `emotion_log.md`
 
 #### 💬 AI 主动干预
+
 - 连续 60 秒检测到负面情绪（悲伤 / 愤怒 / 恐惧 / 厌恶）时触发
 - 优先调用 DeepSeek API 生成个性化暖心话语
 - 网络断开时自动切换本地 Miku 二次元语录库兜底
 
 #### 🎵 媒体播放器
+
 - 日常 GIF/MP4 循环待机，双击随机切换
 - 跳舞模式：播放带音频 MP4
 - 唱歌模式：底部弹出极简单行播放器（上一首 / 播放暂停 / 下一首 / 关闭）
 
 #### ⚙️ 热切换推理后端
+
 点击齿轮图标 ⚙️ 打开设置窗口，可实时切换：
+
 - **自建 PyTorch CNN**（默认，离线可用）
 - **DeepFace**（精度更高，需联网或本地模型）
 - **Fallback 模拟器**（无摄像头时调试用）
 
 ### 🐛 已知问题 & 解决方案
 
-| 问题 | 原因 | 解决方案 |
-|------|------|----------|
-| GPU 报错 `no kernel image` | RTX 50xx Blackwell 架构暂不被 PyTorch cu124 支持 | 设置 `CUDA_VISIBLE_DEVICES=-1` 强制 CPU 模式 |
-| OpenCV 加载 XML 崩溃 | 项目路径含中文，OpenCV C++ 底层不支持 | 将 XML 复制到系统临时英文路径再加载 |
-| `int32 is not JSON serializable` | Haar Cascades 返回 numpy int32 | 显式转换为标准 Python `int` |
-| WebSocket `no running event loop` | 新版 websockets 接口变更 | 改用 `async with websockets.serve(...)` |
+| 问题                                | 原因                                        | 解决方案                                   |
+| --------------------------------- | ----------------------------------------- | -------------------------------------- |
+| GPU 报错 `no kernel image`          | RTX 50xx Blackwell 架构暂不被 PyTorch cu124 支持 | 设置 `CUDA_VISIBLE_DEVICES=-1` 强制 CPU 模式 |
+| OpenCV 加载 XML 崩溃                  | 项目路径含中文，OpenCV C++ 底层不支持                  | 将 XML 复制到系统临时英文路径再加载                   |
+| `int32 is not JSON serializable`  | Haar Cascades 返回 numpy int32              | 显式转换为标准 Python `int`                   |
+| WebSocket `no running event loop` | 新版 websockets 接口变更                        | 改用 `async with websockets.serve(...)`  |
 
 ### 📊 模型性能对比
 
-| 模型 | 验证集准确率 | 推理速度（CPU） | 模型大小 |
-|------|:-----------:|:--------------:|:-------:|
-| 自建 CNN | ~62% | < 2ms / 帧 | 23.2 MB |
-| HOG + SVM | ~55% | < 1ms / 帧 | 0.2 MB |
-| MobileNetV2 微调 | ~65% | ~5ms / 帧 | 8.9 MB |
+| 模型             | 验证集准确率 | 推理速度（CPU） | 模型大小    |
+| -------------- |:------:|:---------:|:-------:|
+| 自建 CNN         | ~62%   | < 2ms / 帧 | 23.2 MB |
+| HOG + SVM      | ~55%   | < 1ms / 帧 | 0.2 MB  |
+| MobileNetV2 微调 | ~65%   | ~5ms / 帧  | 8.9 MB  |
 
 > 数据集：FER2013（35887 张，48×48 灰度图，7 类）
 
 ### 🤝 贡献
 
 欢迎提 Issue 和 PR！特别是：
+
 - 更多 Miku 媒体资源
 - 更高精度的情绪识别模型
 - macOS / Linux 支持
@@ -225,14 +231,8 @@ Miku Cure is a transparent floating desktop pet that lives in the bottom-right c
 git clone https://github.com/momo325/miku-cure.git
 cd miku-cure
 
-# Backend
-cd backend && python -m venv .venv && .venv\Scripts\activate
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
-python main.py
-
-# Frontend (new terminal)
-cd frontend && npm install && npm start
+# Just double click `install.bat` to setup environments.
+# Then double click `start.bat` to run the app!
 ```
 
 Create a `.env` file in root with your `DEEPSEEK_API_KEY`.
