@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Miku情绪伴侣</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container" id="app">
+    
+    <!-- Main Pet Viewport (200x200 square) -->
+    <div class="pet-viewport" id="pet-viewport">
+      
+      <!-- Miku Display Area (exact 200x200 container) -->
+      <div class="miku-display-area" id="miku-display">
+        <video id="miku-video" autoplay loop muted src=""></video>
+
+        <!-- Floating Transparent Header (inside GIF container at top) -->
+        <div class="viewport-header" id="viewport-header">
+          <div class="emotion-badge" id="emotion-badge">😐 --%</div>
+          <div class="control-icons">
+            <button class="ctrl-btn" id="timer-toggle" title="开始专注 (番茄钟)">🍅</button>
+            <button class="ctrl-btn" id="settings-toggle" title="选择检测模型">⚙️</button>
+            <button class="ctrl-btn" id="talent-toggle" title="Miku才艺演示">⭐</button>
+            <button class="ctrl-btn close-btn" id="close-btn" title="关闭挂件">✕</button>
+          </div>
+        </div>
+
+        <!-- Overlay 1: Timer panel (strictly at bottom inside GIF container) -->
+        <div class="timer-overlay hide" id="timer-panel">
+          <!-- Setup input -->
+          <div class="timer-setup" id="timer-setup">
+            <input type="number" id="duration-input" min="1" max="180" value="30">
+            <span class="unit-text">分</span>
+            <button class="timer-start-btn" id="start-btn">开始专注</button>
+          </div>
+          <!-- Active countdown -->
+          <div class="timer-active hide" id="timer-active">
+            <span class="countdown-display" id="countdown">30:00</span>
+            <button class="active-btn pause-btn" id="pause-btn" title="暂停/继续">⏸</button>
+            <button class="active-btn stop-btn" id="stop-btn" title="终止">✕</button>
+          </div>
+        </div>
+
+        <!-- Overlay 2: Talent option list (strictly at bottom inside GIF container) -->
+        <div class="talent-overlay hide" id="talent-panel">
+          <button class="talent-btn" id="action-dance">💃 跳舞</button>
+          <button class="talent-btn" id="action-sing">🎵 唱歌</button>
+          <button class="talent-btn" id="action-stop-talent">🛑 停止</button>
+        </div>
+
+        <!-- Overlay 3: Sing Mode Media Player (strictly at bottom inside GIF container, single-row layout) -->
+        <div class="media-player-overlay hide" id="media-player-panel">
+          <div class="player-left-controls">
+            <button class="player-btn" id="player-prev" title="上一首">&lt;</button>
+            <button class="player-btn" id="player-play" title="播放/暂停">||</button>
+            <button class="player-btn" id="player-next" title="下一首">&gt;</button>
+          </div>
+          <div class="marquee-container">
+            <div class="marquee-text" id="song-title">当前无播放</div>
+          </div>
+          <button class="player-btn close-btn" id="player-close" title="关闭播放器">×</button>
+        </div>
+
+      </div>
+
+      <!-- Floating chat bubble dialogue -->
+      <div class="chat-bubble hide" id="chat-bubble">
+        <div class="chat-triangle"></div>
+        <div class="chat-text" id="chat-text">人，要不要我给你跳个舞/唱首歌放松一下？</div>
+        <div class="chat-actions" id="chat-actions">
+          <button class="bubble-btn dance-btn" id="bubble-dance">💃 跳舞</button>
+          <button class="bubble-btn sing-btn" id="bubble-sing">🎵 唱歌</button>
+          <button class="bubble-btn dismiss-btn" id="bubble-dismiss">下次吧</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Period-end Emotion Report Card -->
+    <div class="report-overlay hide" id="report-overlay">
+      <div class="report-card">
+        <h3 class="report-title">专注周期总结报告</h3>
+        <div class="report-subtitle" id="report-period">--:-- ~ --:-- (专注--分钟)</div>
+        
+        <div class="chart-container">
+          <div class="chart-bars" id="chart-bars">
+            <!-- Dynamically populated bars -->
+          </div>
+        </div>
+
+        <div class="report-comment">
+          <span class="comment-author">Miku的话:</span>
+          <p class="comment-text" id="report-comment-text">加载中...</p>
+        </div>
+
+        <button class="report-close-btn" id="report-close-btn">知道啦</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+# 本地开发文档 & 设计文件夹
+设计/
+
+# 本地 Miku 媒体资源（gif / dance / sing 体积过大）
+miku/
+
+# 本地数据集
+datasets/
+
+# 本地密钥
+.env
+
+# PyTorch 离线安装包（体积 >2GB）
+torch-*.whl
+
+# ── Python ──────────────────────────────────────────
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 字节码缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 测试 & 覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── 训练产物（模型权重，体积较大）──────────────────
+backend/models/
+*.h5
+*.pth
+*.pkl
+
+# ── Node.js / Electron ──────────────────────────────
+node_modules/
+dist/
+build/
+out/
+
+# ── 运行时生成文件 ───────────────────────────────────
+*.log
+emotion_log.md
+
+# ── IDE / 编辑器 ─────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

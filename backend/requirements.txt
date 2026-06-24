@@ -1,0 +1,11 @@
+opencv-python
+mediapipe
+deepface
+websockets
+openai
+numpy
+pandas
+matplotlib
+scikit-learn
+python-dotenv
+torchvision
