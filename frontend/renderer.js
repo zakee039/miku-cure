@@ -292,7 +292,7 @@ playerPlay.addEventListener('click', () => {
   if (isPlayingSing) {
     currentAudio.pause();
     isPlayingSing = false;
-    playerPlay.textContent = ">";
+    playerPlay.textContent = "▶";
     updateStatus("⏸️ 音乐已暂停", "#bf73ff");
     // Switch to MIKU-PAUSE looping video
     playSingStateVideo(PAUSE_VIDEO);

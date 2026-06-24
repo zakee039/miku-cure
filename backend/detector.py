@@ -110,7 +110,25 @@ class EmotionDetector:
 
     def __init__(self, model_type='cnn', model_path=None):
         self.model_type = model_type
-        self.device = torch.device('cuda' if torch.cuda and torch.cuda.is_available() else 'cpu')
+        # Safe device selection to prevent CUDA errors on unsupported GPUs (like RTX 5060 Blackwell)
+        device_str = 'cpu'
+        if torch and torch.cuda and torch.cuda.is_available():
+            try:
+                # Test if GPU works for EmotionCNN forward pass
+                test_device = torch.device('cuda')
+                test_model = EmotionCNN().to(test_device)
+                test_input = torch.zeros(1, 1, 48, 48).to(test_device)
+                with torch.no_grad():
+                    _ = test_model(test_input)
+                device_str = 'cuda'
+                print("Detector: CUDA is available and working. Using GPU device.")
+            except Exception as e:
+                print(f"Detector: CUDA is available but test forward pass failed: {e}. Falling back to CPU.")
+                device_str = 'cpu'
+        else:
+            print("Detector: CUDA not available. Using CPU device.")
+            
+        self.device = torch.device(device_str)
         self.model = None
         self.smoothing_queue = collections.deque(maxlen=5) # 5-frame voting smooth window
         
