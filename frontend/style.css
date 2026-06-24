@@ -187,14 +187,6 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   border-top: 1px solid var(--border-glass);
   display: flex;
   z-index: 30;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  transform-origin: bottom center;
-  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
 }
 
 /* Overlay 1: Tomato timer config */
@@ -294,31 +286,46 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 
 /* Overlay 2: Talent Panel */
 .talent-overlay {
-  height: 50px;
-  padding: 8px 10px;
+  height: 44px;
+  padding: 0;
   flex-direction: row;
-  justify-content: space-around;
-  align-items: center;
-  gap: 4px;
+  justify-content: center;
+  align-items: stretch;
+  gap: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fdfcf9; /* Milky off-white background */
+  border-radius: 0 0 20px 20px;
 }
 
 .talent-btn {
   font-family: var(--font-family);
-  font-size: 10px;
-  font-weight: 500;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border-glass);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+  border: none;
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0;
+  background: transparent;
+  color: #3e4a59; /* Darker text for readability on off-white */
   cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.talent-btn:first-child {
+  border-radius: 0 0 0 20px;
+}
+
+.talent-btn:last-child {
+  border-right: none;
+  border-radius: 0 0 20px 0;
 }
 
 .talent-btn:hover {
-  background: var(--miku-cyan);
-  color: #102022;
-  border-color: var(--miku-cyan);
+  background: rgba(0, 0, 0, 0.04);
+  color: #1a2535;
 }
 
 .talent-btn#action-stop-talent:hover {
