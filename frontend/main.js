@@ -56,9 +56,9 @@ ipcMain.on('open-settings', () => {
   }
 
   settingsWindow = new BrowserWindow({
-    width: 320,
-    height: 240,
-    title: "模型选择与设置",
+    width: 480,
+    height: 320,
+    title: "Miku Settings",
     resizable: false,
     minimizable: false,
     maximizable: false,

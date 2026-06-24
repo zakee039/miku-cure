@@ -3,93 +3,301 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Miku 伴侣设置</title>
+  <title>Miku Settings</title>
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #f7f9fb;
-      color: #2c3e50;
+    * {
+      box-sizing: border-box;
       margin: 0;
-      padding: 15px;
+      padding: 0;
       user-select: none;
     }
-    .container {
-      background-color: #ffffff;
-      border-radius: 8px;
-      padding: 15px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-      border: 1px solid #eef2f5;
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f6f9;
+      color: #2c3e50;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
-    .title {
-      font-size: 14px;
+
+    /* ── Layout ──────────────────────────────── */
+    .shell {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Left Sidebar Navigation ─────────────── */
+    .sidebar {
+      width: 140px;
+      background: #ffffff;
+      border-right: 1px solid #e4e8ee;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 0;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-label {
+      font-size: 10px;
       font-weight: 600;
-      margin-bottom: 15px;
-      border-bottom: 1px solid #ebedf0;
-      padding-bottom: 8px;
-      color: #34495e;
+      color: #9ba8b8;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 14px 6px;
     }
-    .form-group {
-      margin-bottom: 15px;
-    }
-    .label {
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
       font-size: 12px;
       font-weight: 500;
+      color: #5a6a7e;
+      cursor: pointer;
+      border-radius: 0;
+      border-left: 3px solid transparent;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .nav-item:hover {
+      background: #f0f4fa;
+      color: #2c3e50;
+    }
+
+    .nav-item.active {
+      background: #eaf6f5;
+      color: #39c5bb;
+      border-left-color: #39c5bb;
+      font-weight: 600;
+    }
+
+    .nav-icon {
+      font-size: 14px;
+      width: 18px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    /* ── Right Content Panel ─────────────────── */
+    .content {
+      flex: 1;
+      padding: 20px 22px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .page {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+    }
+
+    .page.active {
+      display: flex;
+    }
+
+    .page-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1a2535;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e4e8ee;
+    }
+
+    /* ── Form Controls ───────────────────────── */
+    .field-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7a8d;
       margin-bottom: 8px;
       display: block;
-      color: #7f8c8d;
     }
+
     .radio-group {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
     }
+
     .radio-option {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 10px;
-      font-size: 12px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1.5px solid #e4e8ee;
+      background: #ffffff;
       cursor: pointer;
-      color: #2c3e50;
+      transition: border-color 0.2s, background 0.2s;
     }
-    .radio-option input {
-      margin: 0;
+
+    .radio-option:hover {
+      border-color: #39c5bb;
+      background: #f5fffe;
+    }
+
+    .radio-option input[type="radio"] {
+      margin-top: 1px;
       accent-color: #39c5bb;
       cursor: pointer;
+      flex-shrink: 0;
     }
+
+    .radio-option input[type="radio"]:checked + .option-text .option-name {
+      color: #39c5bb;
+    }
+
+    .option-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .option-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: #2c3e50;
+      transition: color 0.2s;
+    }
+
+    .option-desc {
+      font-size: 10px;
+      color: #9ba8b8;
+      line-height: 1.3;
+    }
+
     .tip {
-      font-size: 11px;
-      color: #95a5a6;
-      margin-top: 15px;
+      font-size: 10px;
+      color: #b0bec8;
+      line-height: 1.5;
+      padding: 8px 10px;
+      background: #f9fbfd;
+      border-radius: 6px;
+      border: 1px solid #e8edf2;
+    }
+
+    /* ── About page ──────────────────────────── */
+    .about-logo {
+      font-size: 32px;
       text-align: center;
-      line-height: 1.4;
+      margin-bottom: 4px;
+    }
+
+    .about-name {
+      font-size: 14px;
+      font-weight: 700;
+      text-align: center;
+      color: #1a2535;
+    }
+
+    .about-ver {
+      font-size: 10px;
+      text-align: center;
+      color: #9ba8b8;
+      margin-top: 2px;
+    }
+
+    .about-desc {
+      font-size: 11px;
+      color: #6b7a8d;
+      text-align: center;
+      line-height: 1.5;
+      padding: 0 10px;
+    }
+
+    .about-link {
+      font-size: 11px;
+      text-align: center;
+      color: #39c5bb;
+      text-decoration: none;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="title">模型选择与配置</div>
-    
-    <div class="form-group">
-      <span class="label">选择运行引擎：</span>
-      <div class="radio-group">
-        <label class="radio-option">
-          <input type="radio" name="model-select" value="cnn" checked>
-          <span>自建 PyTorch CNN 模型</span>
-        </label>
-        <label class="radio-option">
-          <input type="radio" name="model-select" value="deepface">
-          <span>工业级 DeepFace 预训练模型</span>
-        </label>
-        <label class="radio-option">
-          <input type="radio" name="model-select" value="mock">
-          <span>Fallback 模拟器（基于帧亮度）</span>
-        </label>
+  <div class="shell">
+
+    <!-- Left sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-label">Settings</div>
+
+      <div class="nav-item active" data-page="model">
+        <span class="nav-icon">🧠</span>
+        <span>Model</span>
       </div>
+
+      <div class="nav-item" data-page="about">
+        <span class="nav-icon">💙</span>
+        <span>About</span>
+      </div>
+    </nav>
+
+    <!-- Right content -->
+    <div class="content">
+
+      <!-- Page: Model selection -->
+      <div class="page active" id="page-model">
+        <div class="page-title">Model Selection</div>
+
+        <div>
+          <span class="field-label">Inference Engine</span>
+          <div class="radio-group">
+
+            <label class="radio-option">
+              <input type="radio" name="model-select" value="cnn" checked>
+              <div class="option-text">
+                <span class="option-name">Custom PyTorch CNN</span>
+                <span class="option-desc">Lightweight self-trained model. Works offline.</span>
+              </div>
+            </label>
+
+            <label class="radio-option">
+              <input type="radio" name="model-select" value="deepface">
+              <div class="option-text">
+                <span class="option-name">DeepFace (Pretrained)</span>
+                <span class="option-desc">Higher accuracy. Requires local model files.</span>
+              </div>
+            </label>
+
+            <label class="radio-option">
+              <input type="radio" name="model-select" value="mock">
+              <div class="option-text">
+                <span class="option-name">Fallback Simulator</span>
+                <span class="option-desc">Brightness-based mock. No camera needed.</span>
+              </div>
+            </label>
+
+          </div>
+        </div>
+
+        <div class="tip">
+          Switching the engine triggers a hot-reload in the backend — no restart required.
+        </div>
+      </div>
+
+      <!-- Page: About -->
+      <div class="page" id="page-about">
+        <div class="page-title">About</div>
+        <div class="about-logo">🎵</div>
+        <div class="about-name">Miku Cure</div>
+        <div class="about-ver">v0.1.0</div>
+        <div class="about-desc">
+          A desktop emotion companion powered by real-time facial expression recognition and DeepSeek AI.
+        </div>
+        <a class="about-link" href="https://github.com/momo325/miku-cure" target="_blank">
+          github.com/momo325/miku-cure
+        </a>
+      </div>
+
     </div>
-    
-    <div class="tip">切换选项后，后端检测程序将实时在线重载。</div>
   </div>
-  
+
   <script src="settings_renderer.js"></script>
 </body>
 </html>

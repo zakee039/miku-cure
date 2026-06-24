@@ -293,6 +293,21 @@ body {
   justify-content: space-between;
 }
 
+/* Overlay 4: Dance Mode Close Button (bottom-right red X, same row height as player) */
+.dance-close-overlay {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  height: 34px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: linear-gradient(to left, rgba(15,25,30,0.55) 0%, transparent 100%);
+  border-radius: 0 0 20px 0;
+  z-index: 80;
+}
+
 .player-left-controls {
   display: flex;
   gap: 5px;

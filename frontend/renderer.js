@@ -77,6 +77,8 @@ const actionSing = document.getElementById('action-sing');
 const actionStopTalent = document.getElementById('action-stop-talent');
 
 const mediaPlayerPanel = document.getElementById('media-player-panel');
+const danceClosePanel  = document.getElementById('dance-close-panel');
+const danceCloseBtn    = document.getElementById('dance-close');
 const songTitle = document.getElementById('song-title');
 const playerPrev = document.getElementById('player-prev');
 const playerPlay = document.getElementById('player-play');
@@ -182,6 +184,7 @@ function startDance() {
   talentPanel.classList.add('hide');
   timerPanel.classList.add('hide');
   mediaPlayerPanel.classList.add('hide');
+  danceClosePanel.classList.remove('hide');  // show red X
   
   const randomFile = danceFiles[Math.floor(Math.random() * danceFiles.length)];
   mikuVideo.src = 'file:///' + path.join(danceDir, randomFile).replace(/\\/g, '/');
@@ -247,6 +250,7 @@ function stopSingOrDance() {
   mikuVideo.loop = true;
   mikuVideo.muted = true;
   mediaPlayerPanel.classList.add('hide');
+  danceClosePanel.classList.add('hide');  // hide red X
   updateStatus("😐 正在静静陪伴你", "#39c5bb");
   playRandomDailyVideo();
 }
@@ -304,6 +308,10 @@ playerPlay.addEventListener('click', () => {
 });
 
 playerClose.addEventListener('click', () => {
+  stopSingOrDance();
+});
+
+danceCloseBtn.addEventListener('click', () => {
   stopSingOrDance();
 });
 

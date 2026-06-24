@@ -1,22 +1,32 @@
 const { ipcRenderer } = require('electron');
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Retrieve the model type saved in localStorage (defaulting to 'cnn')
-  const savedModel = localStorage.getItem('miku-model-type') || 'cnn';
-  const radio = document.querySelector(`input[name="model-select"][value="${savedModel}"]`);
-  if (radio) {
-    radio.checked = true;
-  }
+  // ── Navigation ──────────────────────────────────────
+  const navItems = document.querySelectorAll('.nav-item');
+  const pages    = document.querySelectorAll('.page');
 
-  // Listen for user changes on radio select
-  const modelRadios = document.getElementsByName('model-select');
-  modelRadios.forEach(radio => {
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const target = item.dataset.page;
+
+      navItems.forEach(n => n.classList.remove('active'));
+      pages.forEach(p => p.classList.remove('active'));
+
+      item.classList.add('active');
+      const page = document.getElementById('page-' + target);
+      if (page) page.classList.add('active');
+    });
+  });
+
+  // ── Model selection ─────────────────────────────────
+  const savedModel = localStorage.getItem('miku-model-type') || 'cnn';
+  const savedRadio = document.querySelector(`input[name="model-select"][value="${savedModel}"]`);
+  if (savedRadio) savedRadio.checked = true;
+
+  document.getElementsByName('model-select').forEach(radio => {
     radio.addEventListener('change', (e) => {
       const selectedModel = e.target.value;
-      console.log("Settings: Changed model to", selectedModel);
       localStorage.setItem('miku-model-type', selectedModel);
-      
-      // Notify main process to broadcast the change
       ipcRenderer.send('model-changed', selectedModel);
     });
   });
