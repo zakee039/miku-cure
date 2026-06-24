@@ -73,8 +73,7 @@ const talentToggle = document.getElementById('talent-toggle');
 const talentPanel = document.getElementById('talent-panel');
 
 const actionDance = document.getElementById('action-dance');
-const actionSing = document.getElementById('action-sing');
-const actionStopTalent = document.getElementById('action-stop-talent');
+const actionSing  = document.getElementById('action-sing');
 
 const mediaPlayerPanel = document.getElementById('media-player-panel');
 const danceClosePanel  = document.getElementById('dance-close-panel');
@@ -278,10 +277,6 @@ bubbleDismiss.addEventListener('click', () => {
 
 actionDance.addEventListener('click', startDance);
 actionSing.addEventListener('click', () => startSingPlaylist(Math.floor(Math.random() * singFiles.length)));
-actionStopTalent.addEventListener('click', () => {
-  stopSingOrDance();
-  talentPanel.classList.add('hide');
-});
 
 // Media player controls
 playerPrev.addEventListener('click', () => {

@@ -2,9 +2,14 @@ const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
+// RTX 5060 Blackwell GPU is not supported by Electron's GPU process (sm_120).
+// Disable hardware acceleration to prevent GPU process crashes.
+app.disableHardwareAcceleration();
+
 let mainWindow;
 let settingsWindow = null;
 let backendProcess = null;
+
 
 function createWindow() {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
