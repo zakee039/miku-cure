@@ -14,8 +14,8 @@ const dictionary: Record<Locale, Record<string, string>> = {
   zh: {
     toTrain: '去训练',
     toUse: '去使用',
-    title: 'MikuAI . Chart',
-    subtitle: '神经网路自动制谱工作站',
+    title: 'Miku Cure',
+    subtitle: '情绪模型训练中心',
     inferenceStation: '🎵 制谱推断区',
     trainingStation: '模型训练工作站',
     statusReady: '就绪',
@@ -48,8 +48,8 @@ const dictionary: Record<Locale, Record<string, string>> = {
   en: {
     toTrain: 'to train',
     toUse: 'to use',
-    title: 'MikuAI . Chart',
-    subtitle: 'Neural Beatmap Generation Station',
+    title: 'Miku Cure',
+    subtitle: 'Emotion Model Training Station',
     inferenceStation: '🎵 Inference Station',
     trainingStation: 'Model Training Station',
     statusReady: 'READY',
@@ -82,8 +82,8 @@ const dictionary: Record<Locale, Record<string, string>> = {
   ja: {
     toTrain: '訓練へ',
     toUse: '推論へ',
-    title: 'MikuAI . Chart',
-    subtitle: 'ニューラル自動譜面生成ステーション',
+    title: 'Miku Cure',
+    subtitle: '感情モデルトレーニングステーション',
     inferenceStation: '🎵 推論ステーション',
     trainingStation: 'モデル訓練ステーション',
     statusReady: '準備完了',

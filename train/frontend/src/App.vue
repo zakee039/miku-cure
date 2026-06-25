@@ -1,16 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { currentLocale, locales, t } from './i18n'
-import UploadComponent from './components/UploadComponent.vue'
-import ConfigPanel from './components/ConfigPanel.vue'
-import ProgressStatus from './components/ProgressStatus.vue'
 import TrainingConsole from './components/TrainingConsole.vue'
 
-const currentView = ref<'inference' | 'training'>('inference')
-
-const toggleView = () => {
-  currentView.value = currentView.value === 'inference' ? 'training' : 'inference'
-}
+const currentView = ref<'training'>('training')
 
 // Music Player Logic
 const isMusicPlaying = ref(false)
@@ -25,21 +18,12 @@ const playRandomMusic = async () => {
   const randomUrl = musicUrls[Math.floor(Math.random() * musicUrls.length)]
   
   try {
-    // 终极绝招：彻底修改 URL 后缀，并且搭配 vite.config.ts 里的中间件
-    // 把 .ogg 替换成 .fake_ext，同时后端强行返回 text/plain
-    const fakeUrl = randomUrl.replace('.ogg', '.fake_ext')
-    const response = await fetch(fakeUrl)
-    const blob = await response.blob()
-    // 手动重构正确的音频 Blob
-    const audioBlob = new Blob([blob], { type: 'audio/ogg' })
-    const objectUrl = URL.createObjectURL(audioBlob)
-
     if (!audioPlayer.value) {
-      audioPlayer.value = new Audio(objectUrl)
+      audioPlayer.value = new Audio(randomUrl)
       audioPlayer.value.volume = 0.5
       audioPlayer.value.addEventListener('ended', playRandomMusic)
     } else {
-      audioPlayer.value.src = objectUrl
+      audioPlayer.value.src = randomUrl
     }
     
     await audioPlayer.value.play()
@@ -59,45 +43,7 @@ const toggleMusic = () => {
   }
 }
 
-const currentFile = ref<File | null>(null)
-const config = ref({ energyGate: 0.5 })
 
-const status = ref<'idle' | 'uploading' | 'processing' | 'done' | 'error'>('idle')
-const progress = ref(0)
-const statusMessage = ref('')
-
-const handleFileSelected = (file: File) => {
-  currentFile.value = file
-}
-
-const handleConfigUpdate = (newConfig: { energyGate: number }) => {
-  config.value = newConfig
-}
-
-const generateBeatmap = () => {
-  if (!currentFile.value) return
-  
-  status.value = 'uploading'
-  statusMessage.value = t('uploadingMsg')
-  progress.value = 0
-  
-  const interval = setInterval(() => {
-    progress.value += 5
-    
-    if (progress.value === 30) {
-      status.value = 'processing'
-      statusMessage.value = t('extractingMsg')
-    } else if (progress.value === 60) {
-      statusMessage.value = t('inferenceMsg')
-    } else if (progress.value === 85) {
-      statusMessage.value = t('postProcessMsg')
-    } else if (progress.value >= 100) {
-      clearInterval(interval)
-      status.value = 'done'
-      statusMessage.value = t('completeMsg')
-    }
-  }, 300)
-}
 </script>
 
 <template>
@@ -105,9 +51,7 @@ const generateBeatmap = () => {
     <!-- Top Bar -->
     <div class="top-bar">
       <div class="left-controls">
-        <button class="toggle-view-btn" @click="toggleView">
-          {{ currentView === 'inference' ? t('toTrain') : t('toUse') }}
-        </button>
+        <!-- Removed inference view toggle -->
         
         <button class="music-btn" :class="{ 'is-playing': isMusicPlaying }" @click="toggleMusic">
           🎵
@@ -133,42 +77,7 @@ const generateBeatmap = () => {
     <main class="main-content">
       <div class="view-container">
         
-        <!-- Inference Section -->
-        <div v-if="currentView === 'inference'" class="miku-card inference-panel fade-in">
-          <div class="panel-header">
-            <h2>{{ t('inferenceStation') }}</h2>
-            <span class="status-badge" v-if="status === 'idle'">{{ t('statusReady') }}</span>
-            <span class="status-badge active" v-else-if="status !== 'done' && status !== 'error'">{{ t('statusRunning') }}</span>
-            <span class="status-badge done" v-else-if="status === 'done'">{{ t('statusSuccess') }}</span>
-          </div>
-          
-          <div class="panel-body">
-            <UploadComponent @file-selected="handleFileSelected" />
-            <ConfigPanel @update:config="handleConfigUpdate" />
-            
-            <ProgressStatus 
-              :status="status" 
-              :progress="progress" 
-              :message="statusMessage" 
-            />
-            
-            <div class="action-bar">
-              <button 
-                class="btn-primary generate-btn" 
-                :disabled="!currentFile || status === 'uploading' || status === 'processing'"
-                @click="generateBeatmap"
-              >
-                {{ status === 'done' ? t('reGenerate') : t('startGeneration') }}
-              </button>
-              <button 
-                class="btn-primary download-btn" 
-                v-if="status === 'done'"
-              >
-                {{ t('downloadBms') }}
-              </button>
-            </div>
-          </div>
-        </div>
+        <!-- Removed inference view -->
 
         <!-- Training Section -->
         <div v-if="currentView === 'training'" class="fade-in">
