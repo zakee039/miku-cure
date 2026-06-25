@@ -13,7 +13,7 @@ set "FRONTEND=%ROOT%frontend"
 set "VENV=%BACKEND%\.venv"
 
 :: -- Check Python --
-echo [1/4] Checking Python...
+echo [1/5] Checking Python...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo  ERROR: Python not found. Please install Python 3.10+ and add it to PATH.
@@ -23,7 +23,7 @@ if errorlevel 1 (
 for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo   OK: %%v
 
 :: -- Check Node.js --
-echo [2/4] Checking Node.js...
+echo [2/5] Checking Node.js...
 node --version >nul 2>&1
 if errorlevel 1 (
     echo  ERROR: Node.js not found. Please install Node.js 18+ and add it to PATH.
@@ -34,7 +34,7 @@ for /f "tokens=*" %%v in ('node --version 2^>^&1') do echo   OK: Node.js %%v
 
 :: -- Python virtual environment and dependencies --
 echo.
-echo [3/4] Installing Python dependencies...
+echo [3/5] Installing Python dependencies...
 if not exist "%VENV%\Scripts\python.exe" (
     echo   Creating virtual environment...
     python -m venv "%VENV%"
@@ -72,7 +72,7 @@ echo   OK: Python dependencies installed.
 
 :: -- Node.js dependencies --
 echo.
-echo [4/4] Installing Node.js dependencies (Electron)...
+echo [4/5] Installing Node.js dependencies (Electron)...
 cd /d "%FRONTEND%"
 call npm install --prefer-offline
 if errorlevel 1 (
@@ -81,6 +81,24 @@ if errorlevel 1 (
     exit /b 1
 )
 echo   OK: Node.js dependencies installed.
+
+:: -- Train WebUI dependencies --
+echo.
+echo [5/5] Installing Node.js dependencies (Train WebUI)...
+cd /d "%ROOT%train\frontend"
+call npm install --prefer-offline
+if errorlevel 1 (
+    echo  ERROR: npm install failed for Train WebUI.
+    pause
+    exit /b 1
+)
+call npm run build
+if errorlevel 1 (
+    echo  ERROR: npm run build failed for Train WebUI.
+    pause
+    exit /b 1
+)
+echo   OK: Train WebUI built successfully.
 
 :: -- Done --
 echo.

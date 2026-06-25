@@ -9,3 +9,5 @@ matplotlib
 scikit-learn
 python-dotenv
 torchvision
+fastapi
+uvicorn
