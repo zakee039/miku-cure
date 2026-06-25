@@ -227,7 +227,7 @@ class GrayscaleMobileNetV2(nn.Module):
         return self.mobilenet(x)
 
 if __name__ == '__main__':
-    csv_path = r"f:\project\期末大作业\datasets\fer2013.csv"
+    csv_path = os.path.join(os.path.dirname(__file__), "datasets", "fer2013.csv")
     if not os.path.exists(csv_path):
         print(f"Dataset not found at {csv_path}. Please place fer2013.csv there.")
         sys.exit(1)

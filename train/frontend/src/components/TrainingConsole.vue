@@ -12,7 +12,7 @@ const logs = ref<string[]>([])
 let ws: WebSocket | null = null
 
 const connectWS = () => {
-  ws = new WebSocket('ws://localhost:8000/ws/train')
+  ws = new WebSocket(`ws://${window.location.host}/ws/train`)
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)
     if (data.type === 'status') {
