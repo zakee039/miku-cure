@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { ipcRenderer } = require('electron');
+const { t, applyI18n } = require('./i18n');
 
 // Get project paths
 const projectRoot = path.join(__dirname, '..');
@@ -163,11 +164,11 @@ if (emotionBadge) {
       const labelEl = document.getElementById('emotion-label');
       const confEl  = document.getElementById('emotion-conf');
       if (emojiEl) emojiEl.textContent = '🔌';
-      if (labelEl) labelEl.textContent = '已断开';
+      if (labelEl) labelEl.textContent = t('emotion.disconnected');
       if (confEl)  confEl.textContent  = '--%';
     } else {
       const labelEl = document.getElementById('emotion-label');
-      if (labelEl) labelEl.textContent = '连接中...';
+      if (labelEl) labelEl.textContent = t('emotion.connecting');
     }
   });
 }
@@ -199,7 +200,7 @@ mikuVideo.addEventListener('dblclick', () => {
 // 3. Play Dance mode
 function startDance(index = null) {
   if (danceFiles.length === 0) {
-    showChatBubble("Miku 发现没有放跳舞视频哦（在 miku/dance 目录）", false);
+    showChatBubble(t('status.no_dance'), false);
     return;
   }
   clearTimeout(rotationTimer);
@@ -227,7 +228,7 @@ function startDance(index = null) {
   mikuVideo.muted = false;
   mikuVideo.loop = false;
   
-  updateStatus("💃 正在为你跳舞中...", "#ff5f56");
+  updateStatus(t('status.dancing'), "#ff5f56");
   
   mikuVideo.play().catch(err => {
     console.error("Dance video play error:", err);
@@ -238,7 +239,7 @@ function startDance(index = null) {
 // 4. Play Sing mode (Playlist Player)
 function startSingPlaylist(index = 0) {
   if (singFiles.length === 0) {
-    showChatBubble("Miku 发现没有放歌曲音频哦（在 miku/sing 目录）", false);
+    showChatBubble(t('status.no_sing'), false);
     return;
   }
   clearTimeout(rotationTimer);
@@ -264,7 +265,7 @@ function startSingPlaylist(index = 0) {
   
   songTitle.textContent = randomFile;
   playerPlay.textContent = "||";
-  updateStatus("🎵 正在为你唱歌中...", "#bf73ff");
+  updateStatus(t('status.singing'), "#bf73ff");
   
   // Show MIKU-SING looping video while music is playing
   playSingStateVideo(SING_VIDEO);
@@ -289,7 +290,7 @@ function stopSingOrDance() {
   danceControlsPanel.classList.add('hide');  // hide controls
   // Restore header
   document.getElementById('viewport-header').classList.remove('header-folded');
-  updateStatus("😐 正在静静陪伴你", "#39c5bb");
+  updateStatus(t('status.idle'), "#39c5bb");
   playRandomDailyVideo();
 }
 
@@ -328,14 +329,14 @@ playerPlay.addEventListener('click', () => {
     currentAudio.pause();
     isPlayingSing = false;
     playerPlay.textContent = "▶";
-    updateStatus("⏸️ 音乐已暂停", "#bf73ff");
+    updateStatus(t('status.paused'), "#bf73ff");
     // Switch to MIKU-PAUSE looping video
     playSingStateVideo(PAUSE_VIDEO);
   } else {
     currentAudio.play().catch(e => console.error(e));
     isPlayingSing = true;
     playerPlay.textContent = "||";
-    updateStatus("🎵 正在为你唱歌中...", "#bf73ff");
+    updateStatus(t('status.singing'), "#bf73ff");
     // Switch back to MIKU-SING looping video
     playSingStateVideo(SING_VIDEO);
   }
@@ -436,7 +437,7 @@ startBtn.addEventListener('click', () => {
     }));
   }
   
-  updateStatus(`🍅 专注中 (${mins}分钟)`, "#39c5bb");
+  updateStatus(t('status.focus', { min: mins }), "#39c5bb");
 
   // Start timer interval
   clearInterval(pomodoroTimer);
@@ -501,7 +502,7 @@ stopBtn.addEventListener('click', () => {
   timerSetup.classList.remove('hide');
   timerPanel.classList.add('hide');
   timerPanel.classList.remove('is-active');
-  updateStatus("😐 专注被中断啦", "#ff5f56");
+  updateStatus(t('status.interrupted'), "#ff5f56");
   
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
@@ -522,13 +523,22 @@ function connectBackend() {
   
   ws.onopen = () => {
     console.log('Connected to Python emotion backend.');
-    updateStatus("😐 正在静静陪伴你", "#39c5bb");
+    updateStatus(t('status.idle'), "#39c5bb");
     // Send initial model selection state to backend
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'change_model',
-        model_type: currentModelType
-      }));
+      ws.send(JSON.stringify({ type: 'change_model', model_type: currentModelType }));
+      // Sync current language to backend
+      ws.send(JSON.stringify({ type: 'set_lang', lang: require('./i18n').getCurrentLang() }));
+      // Sync current LLM config to backend
+      const selApiId = localStorage.getItem('miku-sel-api') || '';
+      const selModel = localStorage.getItem('miku-sel-model') || '';
+      try {
+        const apis = JSON.parse(localStorage.getItem('miku-apis') || '[]');
+        const api  = apis.find(a => a.id === selApiId);
+        if (api) {
+          ws.send(JSON.stringify({ type: 'change_llm', base_url: api.baseUrl, api_key: api.apiKey, model: selModel }));
+        }
+      } catch (e) {}
     }
   };
   
@@ -539,15 +549,15 @@ function connectBackend() {
       // Real-time emotion update
       if (data.type === 'emotion_update') {
         const emotionMap = {
-          'happy':   { emoji: '😊', label: '开心' },
-          'neutral': { emoji: '😐', label: '中性' },
-          'sadness': { emoji: '😔', label: '悲伤' },
-          'anger':   { emoji: '😠', label: '憤怒' },
-          'fear':    { emoji: '😨', label: '恐惧' },
-          'disgust': { emoji: '🤢', label: '厌恶' },
-          'surprise':{ emoji: '😲', label: '惊讶' }
+          'happy':   { emoji: '😊', key: 'emotion.happy' },
+          'neutral': { emoji: '😐', key: 'emotion.neutral' },
+          'sadness': { emoji: '😔', key: 'emotion.sadness' },
+          'anger':   { emoji: '😠', key: 'emotion.anger' },
+          'fear':    { emoji: '😨', key: 'emotion.fear' },
+          'disgust': { emoji: '🤢', key: 'emotion.disgust' },
+          'surprise':{ emoji: '😲', key: 'emotion.surprise' }
         };
-        const info    = emotionMap[data.emotion] || { emoji: '😐', label: '中性' };
+        const info    = emotionMap[data.emotion] || { emoji: '😐', key: 'emotion.neutral' };
 
         const percent = Math.round(data.confidence * 100);
         const emojiEl = document.getElementById('emotion-emoji');
@@ -555,7 +565,7 @@ function connectBackend() {
         const confEl  = document.getElementById('emotion-conf');
         if (!isCameraConnected) return; // Do not update UI if disconnected manually
         if (emojiEl) emojiEl.textContent = info.emoji;
-        if (labelEl) labelEl.textContent = info.label;
+        if (labelEl) labelEl.textContent = t(info.key);
         if (confEl)  confEl.textContent  = percent + '%';
       }
       
@@ -599,6 +609,29 @@ ipcRenderer.on('action-from-report', (event, action) => {
 // App Initialization
 mikuState = 'daily';
 playRandomDailyVideo();
+
+// Apply i18n on startup
+applyI18n();
+
+// Re-apply i18n + notify backend when language changes
+ipcRenderer.on('lang-changed', (event, lang) => {
+  applyI18n();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'set_lang', lang }));
+  }
+});
+
+// Forward LLM config change to backend
+ipcRenderer.on('llm-changed', (event, config) => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'change_llm',
+      base_url: config.baseUrl,
+      api_key:  config.apiKey,
+      model:    config.model
+    }));
+  }
+});
 
 // Dynamic Window Size Setup
 ipcRenderer.on('force-adjust-size', (event, sizeStr) => {

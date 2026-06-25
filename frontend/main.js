@@ -1,6 +1,6 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 // RTX 5060 Blackwell GPU is not supported by Electron's GPU process (sm_120).
 // Disable hardware acceleration to prevent GPU process crashes.
@@ -10,6 +10,27 @@ let mainWindow;
 let settingsWindow = null;
 let reportWindow = null;
 let backendProcess = null;
+let backendPid = null;
+
+// Force-kill the Python backend process tree (Windows-safe)
+function killBackend() {
+  if (!backendProcess && !backendPid) return;
+  const pid = backendPid || (backendProcess && backendProcess.pid);
+  if (pid) {
+    try {
+      // On Windows: kill entire process tree recursively
+      if (process.platform === 'win32') {
+        execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+      } else {
+        process.kill(-pid, 'SIGKILL'); // Unix: kill process group
+      }
+    } catch (e) {
+      // Process may have already exited
+    }
+  }
+  backendProcess = null;
+  backendPid = null;
+}
 
 
 function createWindow() {
@@ -39,9 +60,16 @@ function createWindow() {
   mainWindow.loadFile('index.html');
 
   mainWindow.on('closed', function () {
+    // Kill backend immediately when the main window is closed
+    killBackend();
     mainWindow = null;
     if (settingsWindow) {
       settingsWindow.close();
+      settingsWindow = null;
+    }
+    if (reportWindow) {
+      reportWindow.close();
+      reportWindow = null;
     }
   });
 }
@@ -140,9 +168,13 @@ ipcMain.on('action-from-report', (event, action) => {
 });
 
 ipcMain.on('lang-changed', (event, lang) => {
-  if (mainWindow) mainWindow.webContents.send('lang-changed', lang);
+  if (mainWindow)   mainWindow.webContents.send('lang-changed', lang);
   if (reportWindow) reportWindow.webContents.send('lang-changed', lang);
-  // Settings window already knows since it sent it, but good practice
+});
+
+// Forward LLM API config change from settings window to main renderer
+ipcMain.on('llm-changed', (event, config) => {
+  if (mainWindow) mainWindow.webContents.send('llm-changed', config);
 });
 
 // 4. Handle window size change
@@ -177,12 +209,9 @@ ipcMain.on('resize-window', (event, { contentWidth, contentHeight, scale }) => {
 
 app.on('ready', createWindow);
 
-// Kill backend process when Electron fully quits
+// Kill backend process when Electron fully quits (safety net)
 app.on('will-quit', () => {
-  if (backendProcess) {
-    try { backendProcess.kill(); } catch (e) {}
-    backendProcess = null;
-  }
+  killBackend();
 });
 
 // IPC: renderer asks main to launch backend
@@ -191,15 +220,18 @@ ipcMain.on('start-backend', (event, pythonExe) => {
   const backendDir = path.join(__dirname, '..', 'backend');
   backendProcess = spawn(pythonExe, ['main.py'], {
     cwd: backendDir,
+    detached: false,          // keep bound to Electron
     stdio: ['ignore', 'pipe', 'pipe']
   });
+  backendPid = backendProcess.pid;
   backendProcess.stdout.on('data', d => process.stdout.write('[Backend] ' + d));
   backendProcess.stderr.on('data', d => process.stderr.write('[Backend] ' + d));
   backendProcess.on('exit', code => {
     console.log(`[Backend] exited with code ${code}`);
     backendProcess = null;
+    backendPid = null;
   });
-  console.log('[Main] Backend process started, PID:', backendProcess.pid);
+  console.log('[Main] Backend process started, PID:', backendPid);
 });
 
 app.on('window-all-closed', function () {

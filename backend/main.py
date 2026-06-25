@@ -18,6 +18,7 @@ is_running = True
 focus_active = False
 focus_duration_mins = 30
 focus_start_time = 0
+current_lang = 'zh'   # Active UI/log language
 
 # Negative emotion trigger tracking
 negative_emotions_set = {'sadness', 'anger', 'fear', 'disgust'}
@@ -38,6 +39,7 @@ def handle_frontend_message(data):
     """
     global focus_active, focus_duration_mins, focus_start_time
     global current_negative_emotion, negative_emotion_start_time, bubble_triggered
+    global current_lang
     
     msg_type = data.get('type')
     
@@ -51,8 +53,9 @@ def handle_frontend_message(data):
         negative_emotion_start_time = None
         bubble_triggered = False
         
+        logger.lang = current_lang
         logger.start_session(duration_minutes=focus_duration_mins)
-        print(f"Backend: Focus started for {focus_duration_mins} minutes.")
+        print(f"Backend: Focus started for {focus_duration_mins} minutes (lang={current_lang}).")
         
     elif msg_type == 'end_focus':
         if not focus_active:
@@ -70,7 +73,7 @@ def handle_frontend_message(data):
         stats = {em: (emotion_durations.get(em, 0) / total_seconds) * 100 for em in detector.EMOTIONS}
         
         # 2. Get LLM response
-        comment = llm.get_focus_end_response(focus_duration_mins, stats)
+        comment = llm.get_focus_end_response(focus_duration_mins, stats, lang=current_lang)
         
         # 3. Finalize log entry in markdown
         final_stats, actual_minutes = logger.end_session(completed=completed, miku_comment=comment)
@@ -96,6 +99,23 @@ def handle_frontend_message(data):
     elif msg_type == 'change_model':
         model_type = data.get('model_type', 'cnn')
         detector.switch_model(model_type)
+
+    elif msg_type == 'set_lang':
+        # Language change from frontend
+        lang = data.get('lang', 'zh')
+        if lang in ('zh', 'ja', 'en'):
+            current_lang = lang
+            logger.lang  = lang
+            print(f"Backend: Language set to '{lang}'.")
+
+    elif msg_type == 'change_llm':
+        # Hot-swap LLM API configuration from settings
+        base_url = data.get('base_url', '')
+        api_key  = data.get('api_key',  '')
+        model    = data.get('model',    '')
+        llm.reconfigure(base_url=base_url, api_key=api_key, model=model)
+        print(f"Backend: LLM reconfigured → {base_url} / {model}")
+        ws_server.send_to_all({'type': 'llm_status', 'base_url': llm.base_url, 'model': llm.model, 'has_key': bool(llm.api_key)})
 
     elif msg_type == 'toggle_camera':
         state = data.get('state', True)
@@ -146,7 +166,7 @@ def main_loop():
                         if elapsed >= 60.0 and not bubble_triggered:
                             print(f"Backend: Triggered negative emotion care bubble for {emotion} ({elapsed:.1f}s)")
                             # Generate comforting comment from LLM
-                            comment = llm.get_unhappy_response(emotion, duration_seconds=int(elapsed))
+                            comment = llm.get_unhappy_response(emotion, duration_seconds=int(elapsed), lang=current_lang)
                             # Send bubble request to frontend
                             ws_server.send_to_all({
                                 "type": "trigger_bubble",

@@ -19,65 +19,65 @@
 
         <!-- Floating Transparent Header (inside GIF container at top) -->
         <div class="viewport-header" id="viewport-header">
-          <div class="emotion-badge" id="emotion-badge" title="点击断开/连接摄像头">
+          <div class="emotion-badge" id="emotion-badge" data-i18n-title="tip.emotion_badge" title="点击断开/连接摄像头">
             <div class="emotion-emoji" id="emotion-emoji">😐</div>
             <div class="emotion-text">
-              <span class="emotion-label" id="emotion-label">中性</span>
+              <span class="emotion-label" id="emotion-label" data-i18n="emotion.neutral">中性</span>
               <span class="emotion-conf" id="emotion-conf">--%</span>
             </div>
           </div>
           <div class="control-icons">
-            <button class="ctrl-btn" id="timer-toggle" title="开始专注 (番茄钟)">🍅</button>
-            <button class="ctrl-btn" id="settings-toggle" title="选择检测模型">⚙️</button>
-            <button class="ctrl-btn" id="talent-toggle" title="Miku才艺演示">⭐</button>
-            <button class="ctrl-btn close-btn" id="close-btn" title="关闭挂件">✕</button>
+            <button class="ctrl-btn" id="timer-toggle"    data-i18n-title="tip.timer"    title="开始专注 (番茄钟)">🍅</button>
+            <button class="ctrl-btn" id="settings-toggle" data-i18n-title="tip.settings" title="打开设置">⚙️</button>
+            <button class="ctrl-btn" id="talent-toggle"   data-i18n-title="tip.talent"   title="Miku才艺演示">⭐</button>
+            <button class="ctrl-btn close-btn" id="close-btn" data-i18n-title="tip.close" title="关闭挂件">✕</button>
           </div>
         </div>
 
-        <!-- Overlay 1: Timer panel (strictly at bottom inside GIF container) -->
+        <!-- Overlay 1: Timer panel -->
         <div class="timer-overlay hide" id="timer-panel">
           <!-- Setup input -->
           <div class="timer-setup" id="timer-setup">
             <div class="timer-setup-left">
               <input type="number" id="duration-input" min="1" max="180" value="30">
-              <span class="unit-text">分</span>
+              <span class="unit-text" id="unit-min" data-i18n="unit.min">分</span>
             </div>
             <div class="timer-divider"></div>
             <div class="timer-setup-right">
-              <button class="timer-start-btn" id="start-btn">开始专注</button>
+              <button class="timer-start-btn" id="start-btn" data-i18n="btn.start_focus">开始专注</button>
             </div>
           </div>
           <!-- Active countdown -->
           <div class="timer-active hide" id="timer-active">
-            <button class="active-btn pause-btn" id="pause-btn" title="暂停/继续">||</button>
+            <button class="active-btn pause-btn" id="pause-btn" data-i18n-title="tip.pause" title="暂停/继续">||</button>
             <span class="countdown-display" id="countdown">30:00</span>
-            <button class="active-btn stop-btn" id="stop-btn" title="终止">✕</button>
+            <button class="active-btn stop-btn" id="stop-btn" data-i18n-title="tip.stop" title="终止">✕</button>
           </div>
         </div>
 
-        <!-- Overlay 2: Talent option list (strictly at bottom inside GIF container) -->
+        <!-- Overlay 2: Talent option list -->
         <div class="talent-overlay hide" id="talent-panel">
-          <button class="talent-btn" id="action-dance">跳舞</button>
-          <button class="talent-btn" id="action-sing">唱歌</button>
+          <button class="talent-btn" id="action-dance" data-i18n="btn.dance">跳舞</button>
+          <button class="talent-btn" id="action-sing"  data-i18n="btn.sing">唱歌</button>
         </div>
 
-        <!-- Overlay 3: Sing Mode Media Player (strictly at bottom inside GIF container, single-row layout) -->
+        <!-- Overlay 3: Sing Mode Media Player -->
         <div class="media-player-overlay hide" id="media-player-panel">
           <div class="player-left-controls">
-            <button class="player-btn" id="player-prev" title="上一首">&lt;</button>
-            <button class="player-btn" id="player-play" title="播放/暂停">||</button>
-            <button class="player-btn" id="player-next" title="下一首">&gt;</button>
+            <button class="player-btn" id="player-prev" data-i18n-title="tip.prev"  title="上一首">&lt;</button>
+            <button class="player-btn" id="player-play" data-i18n-title="tip.play"  title="播放/暂停">||</button>
+            <button class="player-btn" id="player-next" data-i18n-title="tip.next"  title="下一首">&gt;</button>
           </div>
           <div class="marquee-container">
-            <div class="marquee-text" id="song-title">当前无播放</div>
+            <div class="marquee-text" id="song-title" data-i18n="player.no_song">当前无播放</div>
           </div>
-          <button class="player-btn close-btn" id="player-close" title="关闭播放器">×</button>
+          <button class="player-btn close-btn" id="player-close" data-i18n-title="tip.player_close" title="关闭播放器">×</button>
         </div>
 
-        <!-- Overlay 4: Dance Mode Controls (bottom-left next, bottom-right close) -->
+        <!-- Overlay 4: Dance Mode Controls -->
         <div class="dance-controls-overlay hide" id="dance-controls-panel">
-          <button class="player-btn next-btn" id="dance-next" title="下一个舞蹈">↺</button>
-          <button class="player-btn close-btn" id="dance-close" title="停止跳舞">×</button>
+          <button class="player-btn next-btn" id="dance-next" data-i18n-title="tip.dance_next" title="下一个舞蹈">↺</button>
+          <button class="player-btn close-btn" id="dance-close" data-i18n-title="tip.dance_close" title="停止跳舞">×</button>
         </div>
 
       </div>
@@ -87,14 +87,13 @@
         <div class="chat-triangle"></div>
         <div class="chat-text" id="chat-text">人，要不要我给你跳个舞/唱首歌放松一下？</div>
         <div class="chat-actions" id="chat-actions">
-          <button class="bubble-btn dance-btn" id="bubble-dance">💃 跳舞</button>
-          <button class="bubble-btn sing-btn" id="bubble-sing">🎵 唱歌</button>
-          <button class="bubble-btn dismiss-btn" id="bubble-dismiss">下次吧</button>
+          <button class="bubble-btn dance-btn"   id="bubble-dance"   data-i18n="btn.bubble_dance">💃 跳舞</button>
+          <button class="bubble-btn sing-btn"    id="bubble-sing"    data-i18n="btn.bubble_sing">🎵 唱歌</button>
+          <button class="bubble-btn dismiss-btn" id="bubble-dismiss" data-i18n="btn.bubble_dismiss">下次吧</button>
         </div>
       </div>
 
     </div>
-
 
 
   </div>
