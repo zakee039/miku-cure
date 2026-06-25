@@ -24,7 +24,7 @@ except ImportError:
     pass
 
 # Import the EmotionCNN from our detector
-sys.path.append(os.path.dirname(__file__))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from detector import EmotionCNN
 
 class FER2013Dataset(Dataset):

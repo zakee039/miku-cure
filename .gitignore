@@ -1,9 +1,6 @@
 # 本地开发文档 & 设计文件夹
 开发/
 
-# 本地数据集
-datasets/
-
 # 本地密钥
 .env
 
@@ -27,8 +24,10 @@ __pycache__/
 .coverage
 htmlcov/
 
-# ── 训练产物（模型权重，体积较大）──────────────────
+# ── 训练相关（模型权重，体积较大）──────────────────
+train/models/
 backend/models/
+train/datasets/
 *.h5
 *.pth
 *.pkl

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/version-v0.3.1-ff69b4?style=for-the-badge" />
+<img src="https://img.shields.io/badge/version-v0.3.2-ff69b4?style=for-the-badge" />
 <img src="https://img.shields.io/badge/platform-Windows-0078d7?style=for-the-badge&logo=windows" />
 <img src="https://img.shields.io/badge/Electron-31.7.7-47848f?style=for-the-badge&logo=electron" />
 <img src="https://img.shields.io/badge/PyTorch-2.6.0-ee4c2c?style=for-the-badge&logo=pytorch" />
@@ -85,7 +85,17 @@ cd miku-cure
 
 应用启动后，右击 Miku 头像进入「⚙️ 设置」，在「API 设置」标签页中添加你的 LLM 接口并选中，即可激活 AI 陪伴功能。如果没有配置，将使用本地的随机预设暖心话语。
 
-#### 4. 准备 Miku 媒体资源
+#### 4. 训练模型（可选，耗时约 10-30 分钟）
+
+```bash
+# 需要先将 FER2013 数据集放置于 datasets/fer2013.csv
+cd train
+python train_models.py
+```
+
+训练完成后权重会保存至 `train/models/`，你可以将它们手动拷贝到 `backend/models/` 以供推理使用。
+
+#### 5. 准备 Miku 媒体资源
 
 你可以把自己喜欢的视频和歌曲放入 `miku/` 文件夹中。如果没有该文件夹，请在项目根目录创建它，并按如下结构放置你的自定资源：
 
@@ -106,9 +116,10 @@ miku-cure/
 │   ├── logger.py           # 跨越式情绪日志（支持多语言自动生成）
 │   ├── llm.py              # 兼容 OpenAI 的对话接口 + 本地多语种兜底语录
 │   ├── websocket_server.py # WebSocket 实时推送服务
-│   ├── main.py             # 后端总调度（负面情绪干预 + 番茄钟结算）
-│   ├── train_models.py     # 三模型对比训练脚本
-│   └── requirements.txt
+│   └── main.py             # 后端总调度（负面情绪干预 + 番茄钟结算）
+├── train/
+│   ├── train_models.py     # 模型训练脚本
+│   └── models/             # 训练产出目录
 ├── frontend/
 │   ├── main.js             # Electron 主进程（透明悬浮窗、IPC、进程树清理）
 │   ├── index.html          # 主界面（200×200 视口）
