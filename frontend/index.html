@@ -38,14 +38,19 @@
         <div class="timer-overlay hide" id="timer-panel">
           <!-- Setup input -->
           <div class="timer-setup" id="timer-setup">
-            <input type="number" id="duration-input" min="1" max="180" value="30">
-            <span class="unit-text">分</span>
-            <button class="timer-start-btn" id="start-btn">开始专注</button>
+            <div class="timer-setup-left">
+              <input type="number" id="duration-input" min="1" max="180" value="30">
+              <span class="unit-text">分</span>
+            </div>
+            <div class="timer-divider"></div>
+            <div class="timer-setup-right">
+              <button class="timer-start-btn" id="start-btn">开始专注</button>
+            </div>
           </div>
           <!-- Active countdown -->
           <div class="timer-active hide" id="timer-active">
+            <button class="active-btn pause-btn" id="pause-btn" title="暂停/继续">||</button>
             <span class="countdown-display" id="countdown">30:00</span>
-            <button class="active-btn pause-btn" id="pause-btn" title="暂停/继续">⏸</button>
             <button class="active-btn stop-btn" id="stop-btn" title="终止">✕</button>
           </div>
         </div>
@@ -90,26 +95,7 @@
 
     </div>
 
-    <!-- Period-end Emotion Report Card -->
-    <div class="report-overlay hide" id="report-overlay">
-      <div class="report-card">
-        <h3 class="report-title">专注周期总结报告</h3>
-        <div class="report-subtitle" id="report-period">--:-- ~ --:-- (专注--分钟)</div>
-        
-        <div class="chart-container">
-          <div class="chart-bars" id="chart-bars">
-            <!-- Dynamically populated bars -->
-          </div>
-        </div>
 
-        <div class="report-comment">
-          <span class="comment-author">Miku的话:</span>
-          <p class="comment-text" id="report-comment-text">加载中...</p>
-        </div>
-
-        <button class="report-close-btn" id="report-close-btn">知道啦</button>
-      </div>
-    </div>
 
   </div>
 

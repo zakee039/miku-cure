@@ -30,10 +30,10 @@ body {
   height: 100vh;
 }
 
-/* App container holds Miku Pet Viewport in a 208x208 window boundary (allows box-shadow padding) */
+/* App container holds Miku Pet Viewport */
 .app-container {
-  width: 208px;
-  height: 208px;
+  width: 100vw;
+  height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -41,10 +41,10 @@ body {
   overflow: visible;
 }
 
-/* Pet Viewport (exactly 200x200 size) */
+/* Pet Viewport */
 .pet-viewport {
-  width: 200px;
-  height: 200px;
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -58,10 +58,10 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   -webkit-app-region: no-drag;
 }
 
-/* Miku Display Area (exact 200x200 container) */
+/* Miku Display Area */
 .miku-display-area {
-  width: 200px;
-  height: 200px;
+  width: 100%;
+  height: 100%;
   position: relative;
   border-radius: 20px;
   overflow: hidden;
@@ -83,7 +83,7 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   position: absolute;
   top: 6px;
   left: 6px;
-  width: 188px;
+  width: calc(100% - 12px);
   height: 28px;
   display: flex;
   align-items: center;
@@ -191,96 +191,146 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 
 /* Overlay 1: Tomato timer config */
 .timer-overlay {
-  height: 65px;
-  padding: 8px 10px;
-  flex-direction: column;
+  height: 44px;
+  padding: 0;
+  flex-direction: row;
   justify-content: center;
-  align-items: center;
+  align-items: stretch;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fdfcf9; /* Milky off-white background */
+  border-radius: 0 0 20px 20px;
+}
+
+.timer-overlay.is-active {
+  background: transparent;
+  border-top: none;
+  height: auto;
 }
 
 .timer-setup {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  gap: 6px;
   width: 100%;
-}
-
-.timer-setup input {
-  font-family: var(--font-family);
-  width: 44px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-glass);
-  border-radius: 6px;
-  color: var(--miku-cyan);
-  font-size: 13px;
-  font-weight: 600;
-  text-align: center;
-  padding: 3px;
-  outline: none;
-}
-
-.unit-text {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.timer-start-btn {
-  font-family: var(--font-family);
-  background: var(--miku-cyan);
-  color: #102022;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.timer-start-btn:hover {
-  background: var(--miku-cyan-hover);
-  transform: translateY(-1px);
 }
 
 .timer-active {
   display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 12px 10px 12px;
+  box-sizing: border-box;
+  height: 100%;
+}
+
+.timer-setup-left {
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 4px;
+}
+
+.timer-setup-right {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.timer-divider {
+  width: 1px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.timer-setup input {
+  font-family: var(--font-family);
+  width: 32px;
+  background: transparent;
+  border: none;
+  color: #3e4a59;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: right;
+  padding: 0;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.timer-setup input::-webkit-outer-spin-button,
+.timer-setup input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.unit-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #728c8b;
+}
+
+.timer-start-btn {
+  font-family: var(--font-family);
+  background: transparent;
+  color: #3e4a59;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
   width: 100%;
+  border-radius: 0 0 20px 0;
+}
+
+.timer-start-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1a2535;
 }
 
 .countdown-display {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--miku-cyan);
-  text-shadow: 0 0 8px var(--miku-cyan-glow);
-  letter-spacing: 0.5px;
+  font-size: 24px;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 
+    0 2px 4px rgba(0,0,0,0.5),
+    -1px -1px 0 #3e4a59,  
+     1px -1px 0 #3e4a59,
+    -1px  1px 0 #3e4a59,
+     1px  1px 0 #3e4a59;
+  letter-spacing: 1px;
+  margin-bottom: -4px;
 }
 
 .active-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border-glass);
-  color: var(--text-primary);
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  font-size: 10px;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 800;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
+  text-shadow: 
+    0 2px 4px rgba(0,0,0,0.5),
+    -1px -1px 0 #3e4a59,  
+     1px -1px 0 #3e4a59,
+    -1px  1px 0 #3e4a59,
+     1px  1px 0 #3e4a59;
 }
 
 .active-btn.stop-btn {
-  background: rgba(255, 95, 86, 0.15);
-  border-color: rgba(255, 95, 86, 0.3);
-  color: #ff8882;
+  color: #ff5f56;
 }
 
 .active-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
   transform: scale(1.1);
 }
 
@@ -514,143 +564,7 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   border-color: rgba(255, 255, 255, 0.25);
 }
 
-/* Period report overlay card */
-.report-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(10, 15, 20, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 20px;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-  transition: all 0.3s ease;
-}
 
-.report-card {
-  width: 100%;
-  background: var(--bg-glass-heavy);
-  border: 1px solid var(--border-glass);
-  border-radius: 12px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  box-shadow: var(--shadow-glow);
-  max-height: 180px;
-  overflow-y: auto;
-}
-
-.report-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--miku-cyan);
-  margin-bottom: 2px;
-}
-
-.report-subtitle {
-  font-size: 9px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.chart-container {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.chart-bar-row {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  gap: 6px;
-}
-
-.chart-bar-label {
-  width: 40px;
-  font-size: 8px;
-  color: var(--text-secondary);
-}
-
-.chart-bar-outer {
-  flex-grow: 1;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.chart-bar-inner {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.chart-bar-val {
-  width: 24px;
-  font-size: 8px;
-  color: var(--text-primary);
-  text-align: right;
-  font-weight: 500;
-}
-
-.bar-happy { background: #39c5bb; }
-.bar-neutral { background: #a0c2c0; }
-.bar-sadness { background: #5a9fff; }
-.bar-anger { background: #ff5f56; }
-.bar-fear { background: #bf73ff; }
-.bar-disgust { background: #73d13d; }
-.bar-surprise { background: #ffc53d; }
-
-.report-comment {
-  width: 100%;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 6px;
-  padding: 6px;
-  margin-bottom: 8px;
-}
-
-.comment-author {
-  font-size: 9px;
-  color: var(--miku-cyan);
-  font-weight: 500;
-}
-
-.comment-text {
-  font-size: 9px;
-  line-height: 1.3;
-  color: var(--text-secondary);
-  margin-top: 1px;
-  font-style: italic;
-}
-
-.report-close-btn {
-  font-family: var(--font-family);
-  background: var(--miku-cyan);
-  color: #102022;
-  font-size: 9px;
-  font-weight: 600;
-  padding: 4px 15px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.report-close-btn:hover {
-  background: var(--miku-cyan-hover);
-  transform: translateY(-1px);
-}
 
 .hide {
   display: none !important;

@@ -1,5 +1,5 @@
 # 本地开发文档 & 设计文件夹
-设计/
+开发/
 
 # 本地 Miku 媒体资源（gif / dance / sing 体积过大）
 miku/
@@ -53,3 +53,4 @@ emotion_log.md
 *.swo
 .DS_Store
 Thumbs.db
+logs/

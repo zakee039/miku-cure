@@ -19,49 +19,42 @@ class EmotionLogger:
         'surprise': '😲 惊讶'
       }
 
-    def __init__(self, log_dir=r"f:\project\期末大作业"):
-        self.log_file = os.path.join(log_dir, "emotion_log.md")
+    def __init__(self, log_dir=None):
+        if log_dir is None:
+            # Default to logs/ in project root
+            log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
+            
+        self.log_dir = log_dir
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+            
+        self.log_file = None
         self.current_session_entries = []
-        self.previous_content = ""
         self.session_start_time = None
         self.session_duration_minutes = 30
-        
-        # Load previous file contents if exists to append correctly
-        if os.path.exists(self.log_file):
-            try:
-                with open(self.log_file, 'r', encoding='utf-8') as f:
-                    self.previous_content = f.read()
-                    if self.previous_content.strip() and not self.previous_content.endswith("\n\n"):
-                        self.previous_content += "\n\n"
-            except Exception as e:
-                print(f"Error loading existing log file: {e}")
 
     def start_session(self, duration_minutes=30):
         self.current_session_entries = []
         self.session_duration_minutes = duration_minutes
         self.session_start_time = datetime.datetime.now()
         
-        # Refresh previous content from disk in case of external modifications
-        if os.path.exists(self.log_file):
-            try:
-                with open(self.log_file, 'r', encoding='utf-8') as f:
-                    self.previous_content = f.read()
-                    if self.previous_content.strip() and not self.previous_content.endswith("\n\n"):
-                        self.previous_content += "\n\n"
-            except Exception as e:
-                pass
-        else:
-            # Initialize with file title
-            self.previous_content = "# 情绪日志\n\n"
+        date_str = self.session_start_time.strftime("%Y%m%d")
+        daily_log_dir = os.path.join(self.log_dir, date_str)
+        if not os.path.exists(daily_log_dir):
+            os.makedirs(daily_log_dir)
+        
+        # 专注报告{时分}_{持续时长}_{年月日}.md (Target duration initially)
+        time_str = self.session_start_time.strftime("%H%M")
+        filename = f"专注报告{time_str}_{duration_minutes}分钟_{date_str}.md"
+        self.log_file = os.path.join(daily_log_dir, filename)
         
         start_str = self.session_start_time.strftime("%Y-%m-%d %H:%M:%S")
-        session_header = f"## Session {start_str}（预计专注 {duration_minutes} 分钟）\n\n"
-        session_header += "| 时间戳 | 情绪状态 | 持续时长 | 置信度均值 |\n"
-        session_header += "| :--- | :--- | :--- | :--- |\n"
+        self.current_session_header = f"# 专注周期总结报告\n\n## Session {start_str}（预计专注 {duration_minutes} 分钟）\n\n"
+        self.current_session_header += "| 时间戳 | 情绪状态 | 持续时长 | 置信度均值 |\n"
+        self.current_session_header += "| :--- | :--- | :--- | :--- |\n"
         
-        self.current_session_header = session_header
         self._write_file()
-        print(f"Started logging session at {start_str}")
+        print(f"Started logging session at {start_str} to {filename}")
 
     def log_emotion(self, emotion, confidence):
         if self.session_start_time is None:
@@ -91,7 +84,9 @@ class EmotionLogger:
         return f"{m:02d}:{s:02d}"
 
     def _write_file(self):
-        # Generate current session table content
+        if not self.log_file:
+            return
+            
         table_rows = []
         for entry in self.current_session_entries:
             emotion_zh = self.EMOTION_CHINESE.get(entry.emotion, entry.emotion)
@@ -102,7 +97,7 @@ class EmotionLogger:
         
         try:
             with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write(self.previous_content + session_markdown)
+                f.write(session_markdown)
         except Exception as e:
             print(f"Error writing to log file: {e}")
 
@@ -130,32 +125,42 @@ class EmotionLogger:
         summary_md += "| 情绪 | 占比 | 累计时长 |\n"
         summary_md += "| :--- | :--- | :--- |\n"
         for emotion, seconds in emotion_durations.items():
-            emotion_zh = self.EMOTION_CHINESE.get(emotion, emotion)
-            percent = (seconds / total_seconds) * 100
-            dur_str = f"{seconds // 60}分{seconds % 60}秒"
-            summary_md += f"| {emotion_zh} | {percent:.1f}% | {dur_str} |\n"
+            if seconds > 0:
+                emotion_zh = self.EMOTION_CHINESE.get(emotion, emotion)
+                percent = (seconds / total_seconds) * 100
+                dur_str = f"{seconds // 60}分{seconds % 60}秒"
+                summary_md += f"| {emotion_zh} | {percent:.1f}% | {dur_str} |\n"
             
         summary_md += f"\n## Miku的话\n> \"{miku_comment}\"\n\n---\n\n"
         
-        # Merge this summary permanently into previous_content for the next session
         try:
-            with open(self.log_file, 'r', encoding='utf-8') as f:
-                current_file_content = f.read()
-            self.previous_content = current_file_content + summary_md
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write(self.previous_content)
+            if self.log_file:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    f.write(summary_md)
+                
+                # Rename the file to reflect actual duration
+                actual_minutes = duration_seconds // 60
+                date_str = self.session_start_time.strftime("%Y%m%d")
+                time_str = self.session_start_time.strftime("%H%M")
+                new_filename = f"专注报告{time_str}_{actual_minutes}分钟_{date_str}.md"
+                new_log_file = os.path.join(self.log_dir, date_str, new_filename)
+                
+                if new_log_file != self.log_file and os.path.exists(self.log_file):
+                    os.rename(self.log_file, new_log_file)
+                    self.log_file = new_log_file
+                    
         except Exception as e:
             print(f"Error finalizing session in log file: {e}")
             
         self.session_start_time = None
         self.current_session_entries = []
         
-        return stats
+        return stats, duration_seconds // 60
 
 if __name__ == '__main__':
     # Test Logger
     import time
-    logger = EmotionLogger(r"C:\Users\mamin\.gemini\antigravity-ide\scratch")
+    logger = EmotionLogger()
     logger.start_session(duration_minutes=1)
     logger.log_emotion('neutral', 0.9)
     time.sleep(1)

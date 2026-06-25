@@ -73,12 +73,12 @@ def handle_frontend_message(data):
         comment = llm.get_focus_end_response(focus_duration_mins, stats)
         
         # 3. Finalize log entry in markdown
-        final_stats = logger.end_session(completed=completed, miku_comment=comment)
+        final_stats, actual_minutes = logger.end_session(completed=completed, miku_comment=comment)
         
         # 4. Push report back to Electron frontend
         ws_server.send_to_all({
             "type": "focus_report",
-            "duration_minutes": focus_duration_mins,
+            "duration_minutes": actual_minutes,
             "stats": final_stats,
             "comment": comment,
             "completed": completed

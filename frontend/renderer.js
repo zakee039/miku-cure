@@ -93,12 +93,6 @@ const playerPlay = document.getElementById('player-play');
 const playerNext = document.getElementById('player-next');
 const playerClose = document.getElementById('player-close');
 
-const reportOverlay = document.getElementById('report-overlay');
-const reportPeriod = document.getElementById('report-period');
-const chartBars = document.getElementById('chart-bars');
-const reportCommentText = document.getElementById('report-comment-text');
-const reportCloseBtn = document.getElementById('report-close-btn');
-
 // App state
 let mikuState = 'daily'; // 'daily', 'dancing', 'singing'
 let currentAudio = null;
@@ -113,6 +107,8 @@ let currentSingIndex = 0;
 let currentDanceIndex = 0;
 let isPlayingSing = false;
 let currentModelType = localStorage.getItem('miku-model-type') || 'cnn';
+
+
 
 // Close Window Action
 closeBtn.addEventListener('click', () => {
@@ -429,6 +425,7 @@ startBtn.addEventListener('click', () => {
   // Update layout UI
   timerSetup.classList.add('hide');
   timerActive.classList.remove('hide');
+  timerPanel.classList.add('is-active');
   updateCountdownDisplay();
   
   // Notify Python Backend
@@ -444,6 +441,20 @@ startBtn.addEventListener('click', () => {
   // Start timer interval
   clearInterval(pomodoroTimer);
   pomodoroTimer = setInterval(tickTimer, 1000);
+});
+
+// Add wheel support for duration input
+durationInput.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  let val = parseInt(durationInput.value) || 30;
+  if (e.deltaY < 0) {
+    val += 1;
+  } else {
+    val -= 1;
+  }
+  if (val < 1) val = 1;
+  if (val > 180) val = 180;
+  durationInput.value = val;
 });
 
 function updateCountdownDisplay() {
@@ -464,6 +475,7 @@ function tickTimer() {
     timerActive.classList.add('hide');
     timerSetup.classList.remove('hide');
     timerPanel.classList.add('hide');
+    timerPanel.classList.remove('is-active');
     
     // Notify Backend & requesting end-of-period report
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -477,7 +489,7 @@ function tickTimer() {
 
 pauseBtn.addEventListener('click', () => {
   isPaused = !isPaused;
-  pauseBtn.textContent = isPaused ? "▶" : "⏸";
+  pauseBtn.textContent = isPaused ? "►" : "||";
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'pause_focus', paused: isPaused }));
   }
@@ -488,6 +500,7 @@ stopBtn.addEventListener('click', () => {
   timerActive.classList.add('hide');
   timerSetup.classList.remove('hide');
   timerPanel.classList.add('hide');
+  timerPanel.classList.remove('is-active');
   updateStatus("😐 专注被中断啦", "#ff5f56");
   
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -535,6 +548,7 @@ function connectBackend() {
           'surprise':{ emoji: '😲', label: '惊讶' }
         };
         const info    = emotionMap[data.emotion] || { emoji: '😐', label: '中性' };
+
         const percent = Math.round(data.confidence * 100);
         const emojiEl = document.getElementById('emotion-emoji');
         const labelEl = document.getElementById('emotion-label');
@@ -566,73 +580,73 @@ function connectBackend() {
   };
 }
 
-// 8. Period Emotion Report display
+// 8. Period Emotion Report display (Now opens in separate window)
 function showReportCard(data) {
-  const endTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  reportPeriod.textContent = `${focusStartTimeStr} ~ ${endTime} (专注 ${data.duration_minutes} 分钟)`;
-  
-  // Clear previous chart
-  chartBars.innerHTML = '';
-  
-  const emotionLabels = {
-    'happy': '😊 开心',
-    'neutral': '😐 中性',
-    'sadness': '😔 悲伤',
-    'anger': '😠 愤怒',
-    'fear': '😨 焦虑',
-    'disgust': '🤢 厌恶',
-    'surprise': '😲 惊讶'
-  };
-
-  // Build chart bars
-  const stats = data.stats || {};
-  
-  for (const [emotion, percent] of Object.entries(stats)) {
-    const row = document.createElement('div');
-    row.className = 'chart-bar-row';
-    
-    const label = document.createElement('span');
-    label.className = 'chart-bar-label';
-    label.textContent = emotionLabels[emotion] || emotion;
-    
-    const outer = document.createElement('div');
-    outer.className = 'chart-bar-outer';
-    
-    const inner = document.createElement('div');
-    inner.className = `chart-bar-inner bar-${emotion}`;
-    inner.style.width = '0%'; // Start at 0 for load animation
-    
-    const val = document.createElement('span');
-    val.className = 'chart-bar-val';
-    val.textContent = `${Math.round(percent)}%`;
-    
-    outer.appendChild(inner);
-    row.appendChild(label);
-    row.appendChild(outer);
-    row.appendChild(val);
-    
-    chartBars.appendChild(row);
-    
-    // Animate bar width loading
-    setTimeout(() => {
-      inner.style.width = `${percent}%`;
-    }, 100);
-  }
-  
-  reportCommentText.textContent = data.comment || "Miku 今天陪着你，感觉很安心！";
-  reportOverlay.classList.remove('hide');
+  data.startTime = focusStartTimeStr;
+  data.endTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  ipcRenderer.send('open-report', data);
 }
 
-reportCloseBtn.addEventListener('click', () => {
-  reportOverlay.classList.add('hide');
-  stopSingOrDance();
+// Handle actions triggered from the report window
+ipcRenderer.on('action-from-report', (event, action) => {
+  if (action === 'dance') {
+    startDance();
+  } else if (action === 'sing') {
+    startSingPlaylist(Math.floor(Math.random() * singFiles.length));
+  }
 });
 
 // App Initialization
 mikuState = 'daily';
 playRandomDailyVideo();
 
-// Initial Window Size Setup
+// Dynamic Window Size Setup
+ipcRenderer.on('force-adjust-size', (event, sizeStr) => {
+  if (sizeStr) localStorage.setItem('miku-window-size', sizeStr);
+  adjustWindowSize();
+});
+
+function adjustWindowSize() {
+  const size = localStorage.getItem('miku-window-size') || 'medium';
+  let scale = 1.0;
+  if (size === 'small') scale = 0.67;
+  if (size === 'large') scale = 1.5;
+  
+  const baseSize = 200;
+  let targetWidth = baseSize;
+  let targetHeight = baseSize;
+  
+  // Only apply dynamic elastic resizing when dancing
+  if (mikuState === 'dancing') {
+    const videoWidth = mikuVideo.videoWidth;
+    const videoHeight = mikuVideo.videoHeight;
+    
+    if (videoWidth && videoHeight) {
+      const ratio = videoWidth / videoHeight;
+      if (ratio > 1) {
+        targetWidth = Math.round(baseSize * ratio);
+      } else if (ratio < 1) {
+        targetHeight = Math.round(baseSize / ratio);
+      }
+      
+      const MAX_DIMENSION = 600;
+      if (targetWidth > MAX_DIMENSION) {
+        targetWidth = MAX_DIMENSION;
+        targetHeight = Math.round(MAX_DIMENSION / ratio);
+      }
+      if (targetHeight > MAX_DIMENSION) {
+        targetHeight = MAX_DIMENSION;
+        targetWidth = Math.round(MAX_DIMENSION * ratio);
+      }
+    }
+  }
+  
+  ipcRenderer.send('resize-window', { contentWidth: targetWidth, contentHeight: targetHeight, scale });
+}
+
+mikuVideo.addEventListener('loadedmetadata', adjustWindowSize);
+
+// Trigger initial setup using saved size
 const currentWindowSize = localStorage.getItem('miku-window-size') || 'medium';
 ipcRenderer.send('size-changed', currentWindowSize);
 

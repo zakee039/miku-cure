@@ -8,6 +8,7 @@ app.disableHardwareAcceleration();
 
 let mainWindow;
 let settingsWindow = null;
+let reportWindow = null;
 let backendProcess = null;
 
 
@@ -99,16 +100,78 @@ ipcMain.on('model-changed', (event, selectedModel) => {
   }
 });
 
+// Independent Report Window
+ipcMain.on('open-report', (event, data) => {
+  if (reportWindow) {
+    reportWindow.focus();
+    reportWindow.webContents.send('load-report', data);
+    return;
+  }
+
+  reportWindow = new BrowserWindow({
+    width: 400,
+    height: 520,
+    title: "专注周期总结报告",
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  reportWindow.setMenu(null);
+  reportWindow.loadFile('report.html');
+  
+  reportWindow.webContents.on('did-finish-load', () => {
+    reportWindow.webContents.send('load-report', data);
+  });
+
+  reportWindow.on('closed', () => {
+    reportWindow = null;
+  });
+});
+
+ipcMain.on('action-from-report', (event, action) => {
+  if (mainWindow) {
+    mainWindow.webContents.send('action-from-report', action);
+  }
+});
+
+ipcMain.on('lang-changed', (event, lang) => {
+  if (mainWindow) mainWindow.webContents.send('lang-changed', lang);
+  if (reportWindow) reportWindow.webContents.send('lang-changed', lang);
+  // Settings window already knows since it sent it, but good practice
+});
+
 // 4. Handle window size change
 ipcMain.on('size-changed', (event, size) => {
   if (!mainWindow) return;
-  let scale = 1.0;
-  if (size === 'small') scale = 0.67;
-  else if (size === 'large') scale = 1.5;
+  // Forward to renderer to recalculate with video aspect ratio
+  mainWindow.webContents.send('force-adjust-size', size);
+});
+
+// 5. Dynamic window resize based on video content
+ipcMain.on('resize-window', (event, { contentWidth, contentHeight, scale }) => {
+  if (!mainWindow) return;
+  const width = Math.round((contentWidth + 8) * scale);
+  const height = Math.round((contentHeight + 8) * scale);
   
-  const width = Math.round(208 * scale);
-  const height = Math.round(208 * scale);
-  mainWindow.setSize(width, height);
+  const bounds = mainWindow.getBounds();
+  const cx = bounds.x + bounds.width / 2;
+  const cy = bounds.y + bounds.height / 2;
+  
+  let x = Math.round(cx - width / 2);
+  let y = Math.round(cy - height / 2);
+  
+  const workArea = screen.getPrimaryDisplay().workArea;
+  if (x + width > workArea.x + workArea.width) x = workArea.x + workArea.width - width;
+  if (y + height > workArea.y + workArea.height) y = workArea.y + workArea.height - height;
+  if (x < workArea.x) x = workArea.x;
+  if (y < workArea.y) y = workArea.y;
+  
+  mainWindow.setBounds({ width, height, x, y });
   mainWindow.webContents.setZoomFactor(scale);
 });
 

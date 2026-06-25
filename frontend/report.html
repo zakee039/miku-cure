@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>专注周期总结报告</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <div class="report-card">
+    <div class="header">
+      <div class="header-icon">🤖</div>
+      <div class="header-title">专注周期总结报告</div>
+      <div class="close-btn" id="btn-close-icon">✕</div>
+    </div>
+    <div class="report-subtitle" id="report-period">--:-- ~ --:-- (专注--分钟)</div>
+    
+    <div class="chart-container">
+      <div class="chart-bars" id="chart-bars">
+        <!-- Dynamically populated bars -->
+      </div>
+    </div>
+
+    <div class="report-comment">
+      <span class="comment-author">Miku的话:</span>
+      <p class="comment-text" id="report-comment-text">加载中...</p>
+    </div>
+
+    <div class="action-buttons">
+      <button class="action-btn" id="btn-sing">听miku唱歌</button>
+      <button class="action-btn" id="btn-dance">看miku跳舞</button>
+      <button class="action-btn primary" id="btn-close">谢谢miku</button>
+    </div>
+  </div>
+
+  <script src="report_renderer.js"></script>
+</body>
+</html>
