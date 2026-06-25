@@ -1,0 +1,120 @@
+import { ref } from 'vue'
+
+export type Locale = 'zh' | 'en' | 'ja'
+
+export const currentLocale = ref<Locale>('zh')
+
+export const locales = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: 'English' },
+  { value: 'ja', label: '日本語' }
+]
+
+const dictionary: Record<Locale, Record<string, string>> = {
+  zh: {
+    toTrain: '去训练',
+    toUse: '去使用',
+    title: 'MikuAI . Chart',
+    subtitle: '神经网路自动制谱工作站',
+    inferenceStation: '🎵 制谱推断区',
+    trainingStation: '模型训练工作站',
+    statusReady: '就绪',
+    statusRunning: '运行中',
+    statusSuccess: '成功',
+    startGeneration: '开始生成',
+    reGenerate: '重新生成',
+    downloadBms: '下载 .BMS',
+    uploadAudioSource: '音频源',
+    uploadDrop: '点击或拖拽音频文件到此处',
+    uploadSupport: '支持 .ogg, .mp3, .wav',
+    configParams: '生成参数',
+    configEnergyTitle: '能量门控阈值',
+    configEnergyDesc: '过滤掉音频中过于安静的片段，减少谱面杂音。',
+    uploadingMsg: '正在上传音频...',
+    extractingMsg: '提取梅尔频谱特征...',
+    inferenceMsg: '模型推理中 (CNN + Transformer)...',
+    postProcessMsg: '后处理与校验...',
+    completeMsg: '生成完成！',
+    trainRunning: '训练运行中',
+    systemIdle: '系统空闲',
+    epoch: '轮数 (EPOCH)',
+    loss: '损失值 (LOSS)',
+    lr: '学习率 (LEARNING RATE)',
+    resume: '▶ 继续训练',
+    startTraining: '▶ 开始训练',
+    pause: '⏸ 暂停',
+    abort: '⏹ 强制终止'
+  },
+  en: {
+    toTrain: 'to train',
+    toUse: 'to use',
+    title: 'MikuAI . Chart',
+    subtitle: 'Neural Beatmap Generation Station',
+    inferenceStation: '🎵 Inference Station',
+    trainingStation: 'Model Training Station',
+    statusReady: 'READY',
+    statusRunning: 'RUNNING',
+    statusSuccess: 'SUCCESS',
+    startGeneration: 'START GENERATION',
+    reGenerate: 'RE-GENERATE',
+    downloadBms: 'DOWNLOAD .BMS',
+    uploadAudioSource: 'AUDIO SOURCE',
+    uploadDrop: 'Click or drag audio file here',
+    uploadSupport: 'Supports .ogg, .mp3, .wav',
+    configParams: 'GENERATION PARAMETERS',
+    configEnergyTitle: 'Energy Gating Threshold',
+    configEnergyDesc: 'Filters out quiet sections from chart generation to reduce noise.',
+    uploadingMsg: 'Uploading audio file...',
+    extractingMsg: 'Extracting Mel-spectrogram...',
+    inferenceMsg: 'Model Inference (CNN + Transformer)...',
+    postProcessMsg: 'Post-processing & Validation...',
+    completeMsg: 'Generation Complete!',
+    trainRunning: 'TRAINING RUNNING',
+    systemIdle: 'SYSTEM IDLE',
+    epoch: 'EPOCH',
+    loss: 'LOSS',
+    lr: 'LEARNING RATE',
+    resume: '▶ RESUME',
+    startTraining: '▶ START TRAINING',
+    pause: '⏸ PAUSE',
+    abort: '⏹ ABORT'
+  },
+  ja: {
+    toTrain: '訓練へ',
+    toUse: '推論へ',
+    title: 'MikuAI . Chart',
+    subtitle: 'ニューラル自動譜面生成ステーション',
+    inferenceStation: '🎵 推論ステーション',
+    trainingStation: 'モデル訓練ステーション',
+    statusReady: '準備完了',
+    statusRunning: '実行中',
+    statusSuccess: '成功',
+    startGeneration: '生成開始',
+    reGenerate: '再生成',
+    downloadBms: '.BMSをダウンロード',
+    uploadAudioSource: '音源ファイル',
+    uploadDrop: '音声ファイルをここにクリックまたはドラッグ',
+    uploadSupport: '.ogg, .mp3, .wav をサポート',
+    configParams: '生成パラメータ',
+    configEnergyTitle: 'エネルギーゲート閾値',
+    configEnergyDesc: '静かな部分を除外し、譜面のノイズを減らします。',
+    uploadingMsg: '音声をアップロード中...',
+    extractingMsg: 'メルスペクトログラムを抽出中...',
+    inferenceMsg: 'モデル推論中 (CNN + Transformer)...',
+    postProcessMsg: '後処理と検証...',
+    completeMsg: '生成完了！',
+    trainRunning: '訓練実行中',
+    systemIdle: 'システム待機中',
+    epoch: 'エポック (EPOCH)',
+    loss: '損失 (LOSS)',
+    lr: '学習率 (LEARNING RATE)',
+    resume: '▶ 再開',
+    startTraining: '▶ 訓練開始',
+    pause: '⏸ 一時停止',
+    abort: '⏹ 中止'
+  }
+}
+
+export const t = (key: string): string => {
+  return dictionary[currentLocale.value][key] || key
+}
