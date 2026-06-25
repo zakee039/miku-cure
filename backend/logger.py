@@ -8,6 +8,7 @@ LANG_CONFIG = {
         'duration_unit':    '分钟',
         'report_title':     '专注周期总结报告',
         'session_planned':  '预计专注',
+        'session_actual':   '实际专注',
         'session_unit':     '分钟',
         'col_timestamp':    '时间戳',
         'col_emotion':      '情绪状态',
@@ -35,6 +36,7 @@ LANG_CONFIG = {
         'duration_unit':    '分',
         'report_title':     '集中セッションレポート',
         'session_planned':  '予定集中時間',
+        'session_actual':   '実際の集中時間',
         'session_unit':     '分',
         'col_timestamp':    '時刻',
         'col_emotion':      '感情',
@@ -62,6 +64,7 @@ LANG_CONFIG = {
         'duration_unit':    'min',
         'report_title':     'Focus Session Report',
         'session_planned':  'Planned Duration',
+        'session_actual':   'Actual Duration',
         'session_unit':     'min',
         'col_timestamp':    'Timestamp',
         'col_emotion':      'Emotion',
@@ -184,8 +187,11 @@ class EmotionLogger:
         stats = {em: (emotion_durations.get(em, 0) / total_seconds) * 100
                  for em in cfg['emotions'].keys()}
 
+        actual_minutes = duration_seconds // 60
+
         # Build summary block
         summary_md  = f"\n## {cfg['summary_heading']}\n"
+        summary_md += f"**{cfg['session_actual']}: {actual_minutes} {cfg['session_unit']}**\n\n"
         summary_md += f"| {cfg['col_emotion2']} | {cfg['col_percent']} | {cfg['col_total_dur']} |\n"
         summary_md += "| :--- | :--- | :--- |\n"
         for emotion, seconds in emotion_durations.items():
@@ -203,7 +209,6 @@ class EmotionLogger:
                     f.write(summary_md)
 
                 # Rename to reflect actual duration
-                actual_minutes = duration_seconds // 60
                 date_str  = self.session_start_time.strftime("%Y%m%d")
                 time_str  = self.session_start_time.strftime("%H%M")
                 new_name  = (
