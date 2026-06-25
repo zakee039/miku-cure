@@ -87,7 +87,7 @@ cd miku-cure
 
 #### 4. 准备 Miku 媒体资源
 
-在项目根目录创建 `miku/` 文件夹，并按如下结构放置资源：
+你可以把自己喜欢的视频和歌曲放入 `miku/` 文件夹中。如果没有该文件夹，请在项目根目录创建它，并按如下结构放置你的自定资源：
 
 ```
 miku/
@@ -175,6 +175,8 @@ cd miku-cure
 ```
 
 After starting, right click Miku, open settings, and configure your LLM API in the "API Settings" tab.
+
+**Customizing Media:** You can add your favorite videos and songs by placing them into the `miku/` folder. Create `gif/` (idle MP4s), `dance/` (dance MP4s), and `sing/` (OGG audio) subdirectories to load your own content.
 
 ### 🛠️ Tech Stack
 
