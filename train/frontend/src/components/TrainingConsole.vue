@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { t } from '../i18n'
 
 const isTraining = ref(false)
@@ -9,13 +9,36 @@ const loss = ref(0.0)
 const lr = ref('1e-4')
 const logs = ref<string[]>([])
 
+const datasets = ref<string[]>([])
+const configDataset = ref('')
+const configModel = ref('cnn')
+const configTrainAll = ref(false)
+const configLr = ref(0.0001)
+const configDynamicLr = ref(false)
+const configEpochs = ref(30)
+const configBatchSize = ref(64)
+
+const displayTotalEpochs = computed(() => isTraining.value ? totalEpochs.value : configEpochs.value)
+const displayLr = computed(() => {
+  if (isTraining.value) return lr.value
+  return configDynamicLr.value ? t('auto') : configLr.value
+})
+
 let ws: WebSocket | null = null
 
 const connectWS = () => {
   ws = new WebSocket(`ws://${window.location.host}/ws/train`)
+  ws.onopen = () => {
+    ws?.send(JSON.stringify({ action: 'get_datasets' }))
+  }
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)
-    if (data.type === 'status') {
+    if (data.type === 'datasets') {
+      datasets.value = data.datasets
+      if (datasets.value.length > 0 && !configDataset.value) {
+        configDataset.value = datasets.value[0]
+      }
+    } else if (data.type === 'status') {
       isTraining.value = data.status === 'running'
     } else if (data.type === 'log') {
       logs.value.push(data.line)
@@ -45,12 +68,25 @@ onUnmounted(() => {
 
 const startTraining = () => {
   logs.value = []
+  lr.value = configLr.value.toExponential(0)
+  totalEpochs.value = configEpochs.value
+  
+  const payload = {
+    action: 'start',
+    dataset: configDataset.value,
+    model: configTrainAll.value ? 'ALL' : configModel.value,
+    lr: configLr.value,
+    dynamicLr: configDynamicLr.value,
+    epochs: configEpochs.value,
+    batchSize: configBatchSize.value
+  }
+
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ action: 'start' }))
+    ws.send(JSON.stringify(payload))
   } else {
     connectWS()
     setTimeout(() => {
-      ws?.send(JSON.stringify({ action: 'start' }))
+      ws?.send(JSON.stringify(payload))
     }, 500)
   }
 }
@@ -76,20 +112,81 @@ const stopTraining = () => {
       </div>
     </div>
 
-    <div class="metrics-grid">
-      <div class="metric-box">
-        <span class="label">{{ t('epoch') }}</span>
-        <span class="value">{{ epoch }} / {{ totalEpochs }}</span>
+    <div class="config-panel" v-if="!isTraining && epoch === 0">
+      <div class="config-group">
+        <label>{{ t('dataset') }}</label>
+        <select v-model="configDataset" class="miku-input">
+          <option v-for="ds in datasets" :key="ds" :value="ds">{{ ds }}</option>
+        </select>
       </div>
-      <div class="metric-box">
-        <span class="label">{{ t('loss') }}</span>
-        <span class="value highlight">{{ loss.toFixed(4) }}</span>
+      
+      <div class="config-group">
+        <div class="config-header">
+          <label>{{ t('modelArchitecture') }}</label>
+          <label class="dynamic-lr-label">
+            <input type="checkbox" v-model="configTrainAll" class="miku-checkbox" />
+            {{ t('trainAll') }}
+          </label>
+        </div>
+        <div class="model-tabs" :class="{ disabled: configTrainAll }">
+          <button 
+            class="tab-btn" 
+            :class="{ active: configModel === 'cnn' && !configTrainAll }" 
+            :disabled="configTrainAll"
+            @click="configModel = 'cnn'">EmotionCNN</button>
+          <button 
+            class="tab-btn" 
+            :class="{ active: configModel === 'rnn' && !configTrainAll }" 
+            :disabled="configTrainAll"
+            @click="configModel = 'rnn'">RNN+Attention</button>
+          <button 
+            class="tab-btn" 
+            :class="{ active: configModel === 'mobilenet' && !configTrainAll }" 
+            :disabled="configTrainAll"
+            @click="configModel = 'mobilenet'">MobileNetV2</button>
+        </div>
       </div>
-      <div class="metric-box">
-        <span class="label">{{ t('lr') }}</span>
-        <span class="value">{{ lr }}</span>
+
+        <div class="hyperparams-grid">
+          <div class="config-group">
+            <div class="config-header">
+              <label>{{ t('learningRate') }}</label>
+              <label class="dynamic-lr-label">
+                <input type="checkbox" v-model="configDynamicLr" class="miku-checkbox" />
+                {{ t('dynamicLr') }}
+              </label>
+            </div>
+            <input type="number" v-model="configLr" step="0.0001" class="miku-input" :disabled="configDynamicLr" :class="{ disabled: configDynamicLr }" />
+          </div>
+          <div class="config-group">
+            <div class="config-header">
+              <label>{{ t('totalEpochs') }}</label>
+            </div>
+            <input type="number" v-model="configEpochs" class="miku-input" />
+          </div>
+          <div class="config-group">
+            <div class="config-header">
+              <label>{{ t('batchSize') }}</label>
+            </div>
+            <input type="number" v-model="configBatchSize" class="miku-input" />
+          </div>
       </div>
     </div>
+
+      <div class="metrics-grid">
+        <div class="metric-box">
+          <span class="label">{{ t('epoch') }}</span>
+          <span class="value">{{ epoch }} / {{ displayTotalEpochs }}</span>
+        </div>
+        <div class="metric-box">
+          <span class="label">{{ t('loss') }}</span>
+          <span class="value highlight">{{ loss.toFixed(4) }}</span>
+        </div>
+        <div class="metric-box">
+          <span class="label">{{ t('lr') }}</span>
+          <span class="value">{{ displayLr }}</span>
+        </div>
+      </div>
 
     <div class="progress-bar-container">
       <div class="progress-fill" :style="{ width: `${totalEpochs > 0 ? (epoch / totalEpochs) * 100 : 0}%` }"></div>
@@ -164,6 +261,130 @@ const stopTraining = () => {
   50% { opacity: 0.4; }
 }
 
+  .config-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 10px;
+  }
+  
+  .config-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .config-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 18px;
+  }
+
+  .dynamic-lr-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+
+  .config-group label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: bold;
+    letter-spacing: 1px;
+    margin: 0;
+  }
+
+.miku-input {
+  background: var(--base-surface);
+  border: 1px solid var(--border-light);
+  color: var(--text-main);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+  .miku-input:focus:not(:disabled) {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(57, 197, 187, 0.2);
+  }
+  
+  .miku-input:disabled {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+  
+  .miku-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 3px;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: none;
+    outline: none;
+    transition: all 0.2s ease;
+  }
+
+  .miku-checkbox:checked {
+    background: var(--primary);
+    border-color: #fff;
+  }
+
+  .miku-checkbox:checked::before {
+    content: "✓";
+    color: #fff;
+    font-size: 10px;
+    font-weight: bold;
+  }
+
+.model-tabs {
+  display: flex;
+  background: var(--base-surface);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  gap: 4px;
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 8px;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(57, 197, 187, 0.3);
+}
+
+  .tab-btn:hover:not(.active) {
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+.hyperparams-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -192,7 +413,7 @@ const stopTraining = () => {
   font-size: 24px;
   font-weight: bold;
   color: var(--text-main);
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Courier New', Courier, monospace, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 .highlight {

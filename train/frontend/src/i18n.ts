@@ -37,13 +37,21 @@ const dictionary: Record<Locale, Record<string, string>> = {
     completeMsg: '生成完成！',
     trainRunning: '训练运行中',
     systemIdle: '系统空闲',
-    epoch: '轮数 (EPOCH)',
-    loss: '损失值 (LOSS)',
-    lr: '学习率 (LEARNING RATE)',
+    epoch: '轮数',
+    loss: '损失值',
+    lr: '学习率',
     resume: '▶ 继续训练',
     startTraining: '▶ 开始训练',
     pause: '⏸ 暂停',
-    abort: '⏹ 强制终止'
+    abort: '⏹ 强制终止',
+    dataset: '数据集',
+    modelArchitecture: '模型架构',
+    batchSize: '批次大小',
+    totalEpochs: '总轮数',
+    learningRate: '学习率',
+    dynamicLr: '动态学习率',
+    trainAll: '全部一起训练',
+    auto: '自动'
   },
   en: {
     toTrain: 'to train',
@@ -77,7 +85,15 @@ const dictionary: Record<Locale, Record<string, string>> = {
     resume: '▶ RESUME',
     startTraining: '▶ START TRAINING',
     pause: '⏸ PAUSE',
-    abort: '⏹ ABORT'
+    abort: '⏹ ABORT',
+    dataset: 'Dataset',
+    modelArchitecture: 'Model Architecture',
+    batchSize: 'BATCH SIZE',
+    totalEpochs: 'TOTAL EPOCHS',
+    learningRate: 'LEARNING RATE',
+    dynamicLr: 'Dynamic LR',
+    trainAll: 'Train All Together',
+    auto: 'Auto'
   },
   ja: {
     toTrain: '訓練へ',
@@ -105,13 +121,21 @@ const dictionary: Record<Locale, Record<string, string>> = {
     completeMsg: '生成完了！',
     trainRunning: '訓練実行中',
     systemIdle: 'システム待機中',
-    epoch: 'エポック (EPOCH)',
-    loss: '損失 (LOSS)',
-    lr: '学習率 (LEARNING RATE)',
+    epoch: 'エポック',
+    loss: '損失',
+    lr: '学習率',
     resume: '▶ 再開',
     startTraining: '▶ 訓練開始',
     pause: '⏸ 一時停止',
-    abort: '⏹ 中止'
+    abort: '⏹ 中止',
+    dataset: 'データセット',
+    modelArchitecture: 'モデル構造',
+    batchSize: 'バッチサイズ',
+    totalEpochs: '総エポック数',
+    learningRate: '学習率',
+    dynamicLr: '動的学習率',
+    trainAll: '全て一緒に訓練',
+    auto: '自動'
   }
 }
 

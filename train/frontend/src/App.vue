@@ -58,6 +58,11 @@ const toggleMusic = () => {
         </button>
       </div>
       
+      <div class="top-bar-title">
+        <span class="miku-text">{{ t('title') }}</span>
+        <span class="sub-text">{{ t('subtitle') }}</span>
+      </div>
+      
       <div class="language-selector">
         <select v-model="currentLocale" class="lang-dropdown">
           <option v-for="loc in locales" :key="loc.value" :value="loc.value">
@@ -66,13 +71,6 @@ const toggleMusic = () => {
         </select>
       </div>
     </div>
-
-    <header class="header">
-      <div class="logo-wrapper">
-        <h1 class="title">{{ t('title') }}</h1>
-      </div>
-      <p class="subtitle">{{ t('subtitle') }}</p>
-    </header>
 
     <main class="main-content">
       <div class="view-container">
@@ -148,10 +146,31 @@ const toggleMusic = () => {
 }
 
 .music-btn.is-playing {
-  animation: pulseMusic 2s infinite ease-in-out;
+  background: var(--primary);
+  color: #fff;
+  animation: pulse 2s infinite;
 }
 
-@keyframes pulseMusic {
+.top-bar-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.miku-text {
+  color: var(--primary);
+  text-transform: uppercase;
+}
+
+.sub-text {
+  color: var(--text-main);
+  opacity: 0.8;
+}
+
+@keyframes pulse {
   0% { box-shadow: 0 0 0 0 rgba(57, 197, 187, 0.4); }
   70% { box-shadow: 0 0 0 10px rgba(57, 197, 187, 0); }
   100% { box-shadow: 0 0 0 0 rgba(57, 197, 187, 0); }

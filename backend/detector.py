@@ -20,7 +20,7 @@ except ImportError:
 
 # 1. Define the PyTorch Custom CNN architecture (mirroring Keras notebook)
 class EmotionCNN(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes=8):
         super(EmotionCNN, self).__init__()
         
         # Block 1
@@ -63,7 +63,7 @@ class EmotionCNN(nn.Module):
         self.bn_fc2 = nn.BatchNorm1d(512)
         self.drop_fc2 = nn.Dropout(0.25)
         
-        self.out = nn.Linear(512, 7)
+        self.out = nn.Linear(512, num_classes)
 
     def forward(self, x):
         x = F.relu(self.conv1_1(x))
@@ -106,7 +106,7 @@ class EmotionCNN(nn.Module):
         return x
 
 class EmotionDetector:
-    EMOTIONS = ['anger', 'disgust', 'fear', 'happy', 'sadness', 'surprise', 'neutral']
+    EMOTIONS = ['neutral', 'happy', 'surprise', 'sadness', 'anger', 'disgust', 'fear', 'contempt']
 
     def __init__(self, model_type='cnn', model_path=None):
         self.model_type = model_type
