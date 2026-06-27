@@ -566,6 +566,73 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 
 
 
+/* Proactive Care Popup */
+.care-popup {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-glass-heavy);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border-glass);
+  border-radius: 0 0 20px 20px;
+  padding: 10px;
+  box-shadow: var(--shadow-glow);
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.care-popup.hide {
+  transform: translateY(10px) scale(0.95);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.care-text {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-primary);
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  word-break: break-word;
+}
+
+.care-actions {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.care-btn {
+  font-family: var(--font-family);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+}
+
+.care-btn.chat-btn:hover {
+  background: var(--miku-cyan);
+  color: #102022;
+  border-color: var(--miku-cyan);
+}
+
+.care-btn.dismiss-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
 .hide {
   display: none !important;
 }

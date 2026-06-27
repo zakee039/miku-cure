@@ -63,27 +63,85 @@ document.addEventListener('DOMContentLoaded', () => {
     ipcRenderer.send('run-train');
   });
 
+  let hasDeepface = false;
+  
+  async function checkDeepfaceStatus() {
+    try {
+      hasDeepface = await ipcRenderer.invoke('check-deepface');
+      const opt = modelSelect.querySelector('option[value="deepface"]');
+      const statusText = document.getElementById('deepface-status-text');
+      const dlRow = document.getElementById('deepface-download-row');
+      
+      if (hasDeepface) {
+        if (opt) opt.disabled = false;
+        statusText.textContent = t('model.deepface.installed');
+        statusText.style.color = '#39c5bb';
+        dlRow.style.display = 'none';
+      } else {
+        if (opt) opt.disabled = true;
+        statusText.textContent = t('model.deepface.not_installed');
+        statusText.style.color = '#ff5f56';
+        dlRow.style.display = 'flex';
+        if (modelSelect.value === 'deepface') {
+          modelSelect.value = 'mock';
+          localStorage.setItem('miku-model-type', 'mock');
+          ipcRenderer.send('model-changed', 'mock');
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  const btnDownloadDeepface = document.getElementById('btn-download-deepface');
+  const deepfaceProgCont = document.getElementById('deepface-progress-container');
+  const deepfaceProgBar = document.getElementById('deepface-progress-bar');
+  const deepfaceProgText = document.getElementById('deepface-progress-text');
+  const deepfaceSpeedText = document.getElementById('deepface-speed-text');
+
+  btnDownloadDeepface.addEventListener('click', () => {
+    btnDownloadDeepface.style.display = 'none';
+    deepfaceProgCont.style.display = 'flex';
+    ipcRenderer.send('download-deepface');
+  });
+
+  ipcRenderer.on('deepface-download-status', (event, data) => {
+    if (data.type === 'download_progress') {
+      deepfaceProgBar.style.width = data.progress + '%';
+      deepfaceProgText.textContent = data.progress + '%';
+      deepfaceSpeedText.textContent = data.speed || '';
+    } else if (data.type === 'download_complete') {
+      if (data.success) {
+        checkDeepfaceStatus();
+      } else {
+        alert("Download failed: " + data.error);
+        btnDownloadDeepface.style.display = 'block';
+        deepfaceProgCont.style.display = 'none';
+      }
+    }
+  });
+
   // Dynamically load models from backend
   ipcRenderer.invoke('get-models').then((models) => {
-    // models is an array of .pth filenames like ['best_cnn.pth', 'best_mobilenet.pth']
     models.forEach(modelName => {
       const opt = document.createElement('option');
       opt.value = modelName;
       opt.textContent = modelName;
       modelSelect.appendChild(opt);
     });
-    
-    // Set the saved value after options are populated
-    const savedModel = localStorage.getItem('miku-model-type');
-    if (savedModel && Array.from(modelSelect.options).some(o => o.value === savedModel)) {
-      modelSelect.value = savedModel;
-    } else {
-      modelSelect.value = 'deepface';
-      localStorage.setItem('miku-model-type', 'deepface');
-    }
   }).catch(err => {
     console.error('Failed to load models:', err);
-    modelSelect.value = localStorage.getItem('miku-model-type') || 'deepface';
+  }).finally(() => {
+    checkDeepfaceStatus().then(() => {
+      const savedModel = localStorage.getItem('miku-model-type');
+      if (savedModel && Array.from(modelSelect.options).some(o => o.value === savedModel && !o.disabled)) {
+        modelSelect.value = savedModel;
+      } else {
+        const fallback = modelSelect.querySelector('option[value="deepface"]').disabled ? 'mock' : 'deepface';
+        modelSelect.value = fallback;
+        localStorage.setItem('miku-model-type', fallback);
+      }
+    });
   });
 
   modelSelect.addEventListener('change', () => {

@@ -1,6 +1,7 @@
 {
   "name": "miku-emotion-companion",
-  "version": "0.6.0",
+  "productName": "miku cure",
+  "version": "0.7.0",
   "description": "Miku Emotion Companion Desktop Pet",
   "main": "main.js",
   "scripts": {

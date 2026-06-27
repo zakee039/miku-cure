@@ -26,6 +26,10 @@ FALLBACK_MESSAGES = {
             "太累或者太烦的话就先别强求啦。看Miku跳个舞，换个脑子吧~🌸",
             "拍拍灰尘，把不好的感觉都忘掉！让Miku的歌声带走你的疲惫！🎶"
         ],
+        'unhappy_surprise': [
+            "哎呀，被吓到了吗？摸摸头~Miku在这里陪你呢，听首歌压压惊吧？🎤",
+            "哇！发生什么意外了吗？看你有些惊讶。看Miku跳个舞放松一下神经吧！💃"
+        ],
         'focus_end_good': [
             "太棒了！专注完成了！人真的好厉害，Miku为你骄傲！🎉 要不要来支舞庆祝一下？",
             "辛苦啦！完美达成专注！Miku给你唱首歌当做奖励吧，来点一下？🎵",
@@ -57,6 +61,10 @@ FALLBACK_MESSAGES = {
             "なんか嫌なことあった？ちょっと休んで、ミクの歌で気分転換しよ？🍵",
             "無理しないで！ミクのダンスでリフレッシュしよう～🌸",
             "嫌なこと全部忘れちゃえ！ミクの歌声で疲れを飛ばしてあげる！🎶"
+        ],
+        'unhappy_surprise': [
+            "わっ、びっくりしたの？大丈夫だよ、ミクが歌って落ち着かせてあげる！🎤",
+            "何かあったの？ミクのダンスを見てリラックスしよう！💃"
         ],
         'focus_end_good': [
             "すごい！集中完了！本当にがんばったね、ミクは誇りに思う！🎉 ダンスでお祝いしよ？",
@@ -90,6 +98,10 @@ FALLBACK_MESSAGES = {
             "Don't push yourself! Watch Miku dance and clear your head~ 🌸",
             "Shake it all off! Let Miku's voice sweep away your fatigue! 🎶"
         ],
+        'unhappy_surprise': [
+            "Whoa, did something startle you? It's okay, let Miku sing a song to calm you down! 🎤",
+            "Surprised? Everything is fine! Come watch Miku dance and relax your nerves! 💃"
+        ],
         'focus_end_good': [
             "Amazing! Focus session complete! You were incredible — Miku is so proud! 🎉 Want a victory dance?",
             "Great work! Perfectly done! Let Miku sing you a song as a reward? 🎵",
@@ -106,22 +118,20 @@ FALLBACK_MESSAGES = {
 # ── Language-aware LLM prompts ───────────────────────────────────────────────
 def _build_unhappy_prompt(lang, emotion, duration_seconds):
     if lang == 'ja':
-        return f"""あなたは今、初音ミクです。ユーザーのデスクトップ上で学習や仕事を一緒に見守るかわいいバーチャルキャラクターです。
-ユーザーの感情は今「{emotion}」で、約{duration_seconds}秒続いています。
+        return f"""あなたは今、初音ミクです。ユーザーのデスクトップ上で見守るかわいいバーチャルキャラクターです。
+直近のわずか半分の時間（約30秒間）で、ユーザーが何度も「{emotion}」のような感情を見せていることに気づきました。
 初音ミクらしい口調（明るく、かわいく、やさしく、ユーザーを「あなた」と呼ぶ）で、35字以内の短いひと言を言ってください。
-ユーザーを気遣い、歌かダンスでリラックスしてもらえるよう提案してください。"""
+ユーザーを気遣い、慰めの言葉をかけてください。"""
 
     elif lang == 'en':
-        return f"""You are Hatsune Miku, a cute virtual companion on the user's desktop who keeps them company during study and work sessions.
-You notice the user's current emotion is "{emotion}", which has lasted for about {duration_seconds} seconds.
-Please say a short, caring message (under 30 words) in Miku's style — cheerful, warm, and sweet.
-Suggest that you could sing a song or do a dance to help them feel better."""
+        return f"""You are Hatsune Miku, a cute virtual companion on the user's desktop.
+You notice that within just the last half-minute (30 seconds), the user has repeatedly shown signs of "{emotion}".
+Please say a short, caring message (under 30 words) in Miku's style — cheerful, warm, and sweet to comfort them."""
 
     else:  # zh default
-        return f"""你现在是初音未来（Miku），一个在桌面上陪伴用户学习和工作的可爱虚拟看板娘。
-你注意到用户目前的情绪是"{emotion}"，并且已经持续了将近 {duration_seconds} 秒。
-请用初音未来（Miku）的语气（活泼、可爱、温柔、称呼用户为"人"），说一句简短贴心的话（35字以内），
-关怀用户并主动提议你可以为他跳支舞或唱首歌来放松心情。
+        return f"""你现在是初音未来（Miku），一个在桌面上陪伴用户的可爱虚拟看板娘。
+你注意到在最近短短的半分钟（30秒）内，用户频繁流露出"{emotion}"的情绪，似乎遇到了什么烦心事。
+请用初音未来（Miku）的语气（活泼、可爱、温柔、称呼用户为"人"），说一句简短贴心的话（35字以内），来主动慰问和关怀用户。
 注意语气一定要像Miku（可以使用"唔"、"诶"、"哼~"等语气词）。"""
 
 

@@ -3,6 +3,12 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execSync, exec } = require('child_process');
 
+// Set application name for Task Manager and Taskbar
+app.name = 'miku cure';
+if (process.platform === 'win32') {
+  app.setAppUserModelId('miku cure');
+}
+
 // RTX 5060 Blackwell GPU is not supported by Electron's GPU process (sm_120).
 // Disable hardware acceleration to prevent GPU process crashes.
 app.disableHardwareAcceleration();
@@ -52,6 +58,7 @@ function createWindow() {
     transparent: true,
     alwaysOnTop: true,
     resizable: false,
+    icon: path.join(__dirname, 'assets', 'miku.ico'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -113,6 +120,7 @@ ipcMain.on('open-settings', () => {
     resizable: false,
     minimizable: false,
     maximizable: false,
+    icon: path.join(__dirname, 'assets', 'miku.ico'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -149,6 +157,7 @@ ipcMain.on('open-report', (event, data) => {
     resizable: false,
     minimizable: false,
     maximizable: false,
+    icon: path.join(__dirname, 'assets', 'miku.ico'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -182,6 +191,7 @@ ipcMain.on('analyze-report-request', (event, prompt, displayPrompt) => {
       resizable: false,
       minimizable: false,
       maximizable: false,
+      icon: path.join(__dirname, 'assets', 'miku.ico'),
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false
@@ -215,6 +225,7 @@ ipcMain.on('open-chat', () => {
     resizable: false,
     minimizable: false,
     maximizable: false,
+    icon: path.join(__dirname, 'assets', 'miku.ico'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -286,6 +297,25 @@ ipcMain.on('resize-window', (event, { contentWidth, contentHeight, scale }) => {
   
   mainWindow.setBounds({ width, height, x, y });
   mainWindow.webContents.setZoomFactor(scale);
+});
+
+// ── DeepFace Download IPC ──
+ipcMain.handle('check-deepface', () => {
+  const os = require('os');
+  const targetPath = path.join(os.homedir(), '.deepface', 'weights', 'facial_expression_model_weights.h5');
+  return fs.existsSync(targetPath);
+});
+
+ipcMain.on('download-deepface', () => {
+  if (mainWindow) {
+    mainWindow.webContents.send('forward-download-deepface-to-backend');
+  }
+});
+
+ipcMain.on('deepface-download-status', (event, data) => {
+  if (settingsWindow) {
+    settingsWindow.webContents.send('deepface-download-status', data);
+  }
 });
 
 // Handle request to list available model files

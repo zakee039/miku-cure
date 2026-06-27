@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/version-v0.6.0-ff69b4?style=for-the-badge" />
+<img src="https://img.shields.io/badge/version-v0.7.0-ff69b4?style=for-the-badge" />
 <img src="https://img.shields.io/badge/platform-Windows-0078d7?style=for-the-badge&logo=windows" />
 <img src="https://img.shields.io/badge/Electron-31.7.7-47848f?style=for-the-badge&logo=electron" />
 <img src="https://img.shields.io/badge/PyTorch-2.6.0-ee4c2c?style=for-the-badge&logo=pytorch" />
@@ -42,7 +42,7 @@ Miku Cure 绝不仅仅是一个简单的桌面挂件。它结合了本地深度�
 
 ### 5. 🎵 丰富的多模态互动 (唱歌与跳舞)
 - **内置独立音乐播放器**：当你触发“听 Miku 唱歌”时，系统会调出迷你播放器 UI（支持上一首、下一首、暂停），并伴随专属的“唱歌状态”特殊循环动画。
-- **AI 主动关怀触发**：如果系统连续 60 秒检测到你处于负面情绪（如 Sadness / Anger），Miku 就会主动打断你的负能量，为你生成安慰话语，并邀请你一起听歌或看她跳舞！
+- **AI 全局主动关怀机制**：引入高频30秒情绪滑动窗口，全局实时检测。如果检测到你近期频繁流露负面情绪，底部会自动升起专属的沉浸式慰问弹窗。你可以一键向 Miku 倾诉心事，她将带你摆脱坏心情！
 
 ### 6. 🔬 可视化深度学习训练站 (WebUI)
 位于 `train/` 目录下的高级功能，专为想要自己训练、微调情绪模型的极客玩家打造：

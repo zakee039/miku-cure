@@ -20,6 +20,10 @@ const translations = {
     'model.mock.name':      '亮度模拟器',
     'model.mock.desc':      '基于画面亮度的模拟模式，无需摄像头。',
     'model.tip':            '切换推理引擎后，后端将自动热重载，无需手动重启。',
+    'model.deepface.download_title': 'DeepFace 预训练权重',
+    'model.deepface.not_installed': '未安装',
+    'model.deepface.installed': '已安装',
+    'btn.download_deepface': '一键下载 (约 17MB)',
 
     // General Page
     'general.title':       '通用设置',
@@ -59,6 +63,8 @@ const translations = {
     'btn.bubble_dance':    '💃 跳舞',
     'btn.bubble_sing':     '🎵 唱歌',
     'btn.bubble_dismiss':  '下次吧',
+    'btn.care_chat':       '聊一聊',
+    'btn.care_dismiss':    '我没事',
     'player.no_song':      '当前无播放',
     'btn.chat':            '聊天',
     'chat.title':          '与 Miku 聊天',
@@ -139,6 +145,10 @@ const translations = {
     'model.mock.name':      '輝度シミュレーター',
     'model.mock.desc':      '輝度ベースのシミュレーション。カメラ不要。',
     'model.tip':            'エンジンを切り替えると、バックエンドが自動リロードされます。再起動不要。',
+    'model.deepface.download_title': 'DeepFace 事前学習済みウェイト',
+    'model.deepface.not_installed': '未インストール',
+    'model.deepface.installed': 'インストール済み',
+    'btn.download_deepface': 'ダウンロード (約 17MB)',
 
     // General Page
     'general.title':       '一般設定',
@@ -178,6 +188,8 @@ const translations = {
     'btn.bubble_dance':    '💃 ダンス',
     'btn.bubble_sing':     '🎵 歌う',
     'btn.bubble_dismiss':  '今度ね',
+    'btn.care_chat':       '話そっか',
+    'btn.care_dismiss':    '大丈夫',
     'player.no_song':      '再生中なし',
     'btn.chat':            'チャット',
     'chat.title':          'ミクとチャット',
@@ -258,6 +270,10 @@ const translations = {
     'model.mock.name':      'Brightness Simulator',
     'model.mock.desc':      'Brightness-based mock mode. No camera needed.',
     'model.tip':            'Switching the engine triggers a hot-reload in the backend — no restart required.',
+    'model.deepface.download_title': 'DeepFace Pretrained Weights',
+    'model.deepface.not_installed': 'Not Installed',
+    'model.deepface.installed': 'Installed',
+    'btn.download_deepface': 'Download (Approx 17MB)',
 
     // General Page
     'general.title':       'General Settings',
@@ -297,6 +313,8 @@ const translations = {
     'btn.bubble_dance':    '💃 Dance',
     'btn.bubble_sing':     '🎵 Sing',
     'btn.bubble_dismiss':  'Maybe later',
+    'btn.care_chat':       'Let\'s chat',
+    'btn.care_dismiss':    'I\'m fine',
     'player.no_song':      'Nothing playing',
     'btn.chat':            'Chat',
     'chat.title':          'Chat with Miku',

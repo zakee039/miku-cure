@@ -20,11 +20,11 @@ focus_duration_mins = 30
 focus_start_time = 0
 current_lang = 'zh'   # Active UI/log language
 
+import collections
 # Negative emotion trigger tracking
 negative_emotions_set = {'sadness', 'anger', 'fear', 'disgust'}
-current_negative_emotion = None
-negative_emotion_start_time = None
-bubble_triggered = False
+emotion_window = collections.deque()
+care_popup_triggered = False
 
 # Instantiate components
 camera = Camera(device_index=0, target_fps=1)
@@ -38,7 +38,7 @@ def handle_frontend_message(data):
     Callback to handle incoming JSON commands from Electron frontend.
     """
     global focus_active, focus_duration_mins, focus_start_time
-    global current_negative_emotion, negative_emotion_start_time, bubble_triggered
+    global emotion_window, care_popup_triggered
     global current_lang
     
     msg_type = data.get('type')
@@ -49,9 +49,8 @@ def handle_frontend_message(data):
         focus_start_time = time.time()
         
         # Reset negative emotion tracking
-        current_negative_emotion = None
-        negative_emotion_start_time = None
-        bubble_triggered = False
+        emotion_window.clear()
+        care_popup_triggered = False
         
         logger.lang = current_lang
         logger.start_session(duration_minutes=focus_duration_mins)
@@ -91,13 +90,11 @@ def handle_frontend_message(data):
             
         threading.Thread(target=_process_end_focus, daemon=True).start()
         
-    elif msg_type == 'bubble_dismissed':
-        # User dismissed the Miku care bubble, allow triggers to happen again
-        # after emotion resets or when the timer is reset
-        bubble_triggered = False
-        current_negative_emotion = None
-        negative_emotion_start_time = None
-        print("Backend: Care bubble dismissed by user.")
+    elif msg_type == 'care_popup_dismissed':
+        # User dismissed the Miku care popup, reset window and allow triggers again
+        care_popup_triggered = False
+        emotion_window.clear()
+        print("Backend: Care popup dismissed by user, window reset.")
 
     elif msg_type == 'change_model':
         model_type = data.get('model_type', 'cnn')
@@ -148,9 +145,43 @@ def handle_frontend_message(data):
         })
         print(f"Backend: Sent chat history to frontend")
 
+    elif msg_type == 'download_deepface':
+        def _download():
+            import urllib.request
+            url = "https://ghproxy.com/https://github.com/serengil/deepface_models/releases/download/v1.0/facial_expression_model_weights.h5"
+            target_dir = os.path.expanduser("~/.deepface/weights")
+            os.makedirs(target_dir, exist_ok=True)
+            target_path = os.path.join(target_dir, "facial_expression_model_weights.h5")
+            
+            try:
+                start_time = time.time()
+                def reporthook(count, block_size, total_size):
+                    duration = time.time() - start_time
+                    progress_size = count * block_size
+                    speed = int(progress_size / (1024 * duration)) if duration > 0 else 0
+                    progress = min(100, int(progress_size * 100 / total_size)) if total_size > 0 else 0
+                    
+                    if not hasattr(reporthook, 'last_update') or (time.time() - reporthook.last_update > 0.2) or progress == 100:
+                        ws_server.send_to_all({
+                            "type": "download_progress",
+                            "progress": progress,
+                            "speed": f"{speed} KB/s"
+                        })
+                        reporthook.last_update = time.time()
+                        
+                urllib.request.urlretrieve(url, target_path, reporthook)
+                ws_server.send_to_all({"type": "download_complete", "success": True})
+                print("Backend: DeepFace weights downloaded successfully.")
+            except Exception as e:
+                print(f"Backend: DeepFace download failed: {e}")
+                ws_server.send_to_all({"type": "download_complete", "success": False, "error": str(e)})
+                
+        threading.Thread(target=_download, daemon=True).start()
+        print("Backend: Started downloading DeepFace weights...")
+
 def main_loop():
     global is_running, focus_active
-    global current_negative_emotion, negative_emotion_start_time, bubble_triggered
+    global emotion_window, care_popup_triggered
     
     print("Backend: Main detection loop running.")
     while is_running:
@@ -173,35 +204,35 @@ def main_loop():
                 "bbox": bbox_list
             })
             
-            # 4. Handle logging and negative triggers if focus is active
+            # 4. Handle global proactive care window tracking
+            if not care_popup_triggered:
+                # Add to sliding window (timestamp, emotion)
+                emotion_window.append((time.time(), emotion))
+                # Prune old entries (>30s)
+                while emotion_window and time.time() - emotion_window[0][0] > 30.0:
+                    emotion_window.popleft()
+                
+                # Check negative emotion count
+                neg_count = sum(1 for _, em in emotion_window if em in negative_emotions_set)
+                if neg_count > 20:
+                    print(f"Backend: Triggered proactive care popup (negatives={neg_count}/30s)")
+                    care_popup_triggered = True
+                    
+                    def _trigger_care():
+                        # Find the most frequent negative emotion to give context to LLM
+                        neg_emotions = [em for _, em in emotion_window if em in negative_emotions_set]
+                        most_frequent = max(set(neg_emotions), key=neg_emotions.count) if neg_emotions else 'sadness'
+                        
+                        comment = llm.get_unhappy_response(most_frequent, duration_seconds=30, lang=current_lang)
+                        ws_server.send_to_all({
+                            "type": "trigger_care_popup",
+                            "text": comment
+                        })
+                    threading.Thread(target=_trigger_care, daemon=True).start()
+
+            # Handle focus session logging
             if focus_active:
                 logger.log_emotion(emotion, confidence)
-                
-                # Check negative emotion rule (>60s)
-                if emotion in negative_emotions_set:
-                    if current_negative_emotion != emotion:
-                        current_negative_emotion = emotion
-                        negative_emotion_start_time = time.time()
-                    else:
-                        elapsed = time.time() - negative_emotion_start_time
-                        # If negative emotion has persisted for over 60s and we haven't triggered a bubble yet
-                        if elapsed >= 60.0 and not bubble_triggered:
-                            print(f"Backend: Triggered negative emotion care bubble for {emotion} ({elapsed:.1f}s)")
-                            # Generate comforting comment from LLM
-                            comment = llm.get_unhappy_response(emotion, duration_seconds=int(elapsed), lang=current_lang)
-                            # Send bubble request to frontend
-                            ws_server.send_to_all({
-                                "type": "trigger_bubble",
-                                "text": comment,
-                                "show_actions": True
-                            })
-                            bubble_triggered = True
-                else:
-                    # Reset negative emotion timers when they recover (happy, neutral, surprise)
-                    current_negative_emotion = None
-                    negative_emotion_start_time = None
-                    # Wait for recovery before triggering care bubble again
-                    bubble_triggered = False
         
         # Sleep for remainder of the second to maintain ~1Hz tick rate
         elapsed = time.time() - start_time

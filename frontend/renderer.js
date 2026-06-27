@@ -67,6 +67,11 @@ const bubbleDance = document.getElementById('bubble-dance');
 const bubbleSing = document.getElementById('bubble-sing');
 const bubbleDismiss = document.getElementById('bubble-dismiss');
 
+const carePopup = document.getElementById('care-popup');
+const careText = document.getElementById('care-text');
+const careChatBtn = document.getElementById('care-chat-btn');
+const careDismissBtn = document.getElementById('care-dismiss-btn');
+
 const timerPanel = document.getElementById('timer-panel');
 const timerToggle = document.getElementById('timer-toggle');
 const durationInput = document.getElementById('duration-input');
@@ -312,6 +317,27 @@ bubbleDismiss.addEventListener('click', () => {
   }
 });
 
+// Care Popup Event Handlers
+careChatBtn.addEventListener('click', () => {
+  hideCarePopup();
+  ipcRenderer.send('open-chat');
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'care_popup_dismissed' }));
+    ws.send(JSON.stringify({ 
+      type: 'chat_request', 
+      text: t('btn.care_chat'), 
+      hidden_context: "[System]: The user just clicked 'Chat' from a proactive care popup because they were feeling negative emotions recently. Please start the conversation by gently asking what's bothering them and offer your comfort."
+    }));
+  }
+});
+
+careDismissBtn.addEventListener('click', () => {
+  hideCarePopup();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'care_popup_dismissed' }));
+  }
+});
+
 actionDance.addEventListener('click', startDance);
 actionSing.addEventListener('click', () => startSingPlaylist(Math.floor(Math.random() * singFiles.length)));
 actionChat.addEventListener('click', () => {
@@ -374,6 +400,16 @@ function showChatBubble(text, showActions = true) {
 
 function hideChatBubble() {
   chatBubble.classList.add('hide');
+}
+
+// Care Popup helpers
+function showCarePopup(text) {
+  careText.textContent = text;
+  carePopup.classList.remove('hide');
+}
+
+function hideCarePopup() {
+  carePopup.classList.add('hide');
 }
 
 // 5. Settings toggle (opens separate settings window)
@@ -579,6 +615,11 @@ function connectBackend() {
         showChatBubble(data.text, data.show_actions !== false);
       }
       
+      // Proactive care trigger
+      if (data.type === 'trigger_care_popup') {
+        showCarePopup(data.text);
+      }
+      
       // Period Report display
       if (data.type === 'focus_report') {
         showReportCard(data);
@@ -592,6 +633,11 @@ function connectBackend() {
       // Chat history
       if (data.type === 'chat_history_response') {
         ipcRenderer.send('chat-history-from-backend', data.history);
+      }
+      
+      // DeepFace Download
+      if (data.type === 'download_progress' || data.type === 'download_complete') {
+        ipcRenderer.send('deepface-download-status', data);
       }
     } catch (e) {
       console.error("Error processing websocket message:", e);
@@ -626,6 +672,12 @@ ipcRenderer.on('forward-chat-to-backend', (event, payload) => {
 ipcRenderer.on('forward-history-request-to-backend', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'get_chat_history' }));
+  }
+});
+
+ipcRenderer.on('forward-download-deepface-to-backend', () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'download_deepface' }));
   }
 });
 
