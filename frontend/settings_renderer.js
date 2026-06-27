@@ -57,7 +57,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Model Select ─────────────────────────────────────────────────────────
   const modelSelect = document.getElementById('model-select');
-  modelSelect.value = localStorage.getItem('miku-model-type') || 'cnn';
+  const btnTrain = document.getElementById('btn-train');
+  
+  btnTrain.addEventListener('click', () => {
+    ipcRenderer.send('run-train');
+  });
+
+  // Dynamically load models from backend
+  ipcRenderer.invoke('get-models').then((models) => {
+    // models is an array of .pth filenames like ['best_cnn.pth', 'best_mobilenet.pth']
+    models.forEach(modelName => {
+      const opt = document.createElement('option');
+      opt.value = modelName;
+      opt.textContent = modelName;
+      modelSelect.appendChild(opt);
+    });
+    
+    // Set the saved value after options are populated
+    const savedModel = localStorage.getItem('miku-model-type');
+    if (savedModel && Array.from(modelSelect.options).some(o => o.value === savedModel)) {
+      modelSelect.value = savedModel;
+    } else {
+      modelSelect.value = 'deepface';
+      localStorage.setItem('miku-model-type', 'deepface');
+    }
+  }).catch(err => {
+    console.error('Failed to load models:', err);
+    modelSelect.value = localStorage.getItem('miku-model-type') || 'deepface';
+  });
+
   modelSelect.addEventListener('change', () => {
     localStorage.setItem('miku-model-type', modelSelect.value);
     ipcRenderer.send('model-changed', modelSelect.value);
@@ -196,8 +224,48 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       apiFormName.value = apiFormUrl.value = apiFormKey.value = apiFormModels.value = '';
     }
+    apiFormModels.disabled = true;
+    apiFormModels.style.opacity = '0.6';
     apiFormName.focus();
   }
+
+  async function autoFetchModels() {
+    const url = apiFormUrl.value.trim();
+    const key = apiFormKey.value.trim();
+    if (!url || !key) {
+      apiFormModels.disabled = false;
+      apiFormModels.style.opacity = '1';
+      return;
+    }
+    apiFormModels.value = t('api.fetching_models') || 'Fetching...';
+    try {
+      const res = await fetch(`${url}/models`, {
+        headers: {
+          'Authorization': `Bearer ${key}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.data && Array.isArray(data.data)) {
+          const models = data.data.map(m => m.id);
+          apiFormModels.value = models.join(', ');
+        } else {
+          apiFormModels.value = '';
+        }
+      } else {
+        apiFormModels.value = '';
+      }
+    } catch (e) {
+      console.error('Auto fetch models failed', e);
+      apiFormModels.value = '';
+    } finally {
+      apiFormModels.disabled = false;
+      apiFormModels.style.opacity = '1';
+    }
+  }
+
+  apiFormUrl.addEventListener('blur', autoFetchModels);
+  apiFormKey.addEventListener('blur', autoFetchModels);
 
   function closeForm() {
     apiForm.classList.remove('open');

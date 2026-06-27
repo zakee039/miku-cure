@@ -18,92 +18,10 @@ except ImportError:
     mp = None
     mp_face_detection = None
 
-# 1. Define the PyTorch Custom CNN architecture (mirroring Keras notebook)
-class EmotionCNN(nn.Module):
-    def __init__(self, num_classes=8):
-        super(EmotionCNN, self).__init__()
-        
-        # Block 1
-        self.conv1_1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
-        self.conv1_2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.pool1 = nn.MaxPool2d(2, 2)
-        self.drop1 = nn.Dropout(0.25)
-        
-        # Block 2
-        self.conv2 = nn.Conv2d(64, 128, kernel_size=5, padding=2)
-        self.bn2 = nn.BatchNorm2d(128)
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.drop2 = nn.Dropout(0.25)
-        
-        # Block 3
-        self.conv3 = nn.Conv2d(128, 512, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(512)
-        self.pool3 = nn.MaxPool2d(2, 2)
-        self.drop3 = nn.Dropout(0.25)
-        
-        # Block 4
-        self.conv4 = nn.Conv2d(512, 512, kernel_size=3, padding=1)
-        self.bn4 = nn.BatchNorm2d(512)
-        self.pool4 = nn.MaxPool2d(2, 2)
-        self.drop4 = nn.Dropout(0.25)
-        
-        # Block 5
-        self.conv5 = nn.Conv2d(512, 512, kernel_size=3, padding=1)
-        self.bn5 = nn.BatchNorm2d(512)
-        self.pool5 = nn.MaxPool2d(2, 2)
-        self.drop5 = nn.Dropout(0.25)
-        
-        # Fully Connected Layers
-        self.fc1 = nn.Linear(512 * 1 * 1, 256)
-        self.bn_fc1 = nn.BatchNorm1d(256)
-        self.drop_fc1 = nn.Dropout(0.25)
-        
-        self.fc2 = nn.Linear(256, 512)
-        self.bn_fc2 = nn.BatchNorm1d(512)
-        self.drop_fc2 = nn.Dropout(0.25)
-        
-        self.out = nn.Linear(512, num_classes)
-
-    def forward(self, x):
-        x = F.relu(self.conv1_1(x))
-        x = F.relu(self.conv1_2(x))
-        x = self.bn1(x)
-        x = self.pool1(x)
-        x = self.drop1(x)
-        
-        x = F.relu(self.conv2(x))
-        x = self.bn2(x)
-        x = self.pool2(x)
-        x = self.drop2(x)
-        
-        x = F.relu(self.conv3(x))
-        x = self.bn3(x)
-        x = self.pool3(x)
-        x = self.drop3(x)
-        
-        x = F.relu(self.conv4(x))
-        x = self.bn4(x)
-        x = self.pool4(x)
-        x = self.drop4(x)
-        
-        x = F.relu(self.conv5(x))
-        x = self.bn5(x)
-        x = self.pool5(x)
-        x = self.drop5(x)
-        
-        x = x.view(x.size(0), -1) # Flatten
-        
-        x = F.relu(self.fc1(x))
-        x = self.bn_fc1(x)
-        x = self.drop_fc1(x)
-        
-        x = F.relu(self.fc2(x))
-        x = self.bn_fc2(x)
-        x = self.drop_fc2(x)
-        
-        x = self.out(x)
-        return x
+try:
+    from models_def import EmotionCNN, GrayscaleMobileNetV2, RNNAttentionNetwork
+except ImportError:
+    EmotionCNN = GrayscaleMobileNetV2 = RNNAttentionNetwork = None
 
 class EmotionDetector:
     EMOTIONS = ['neutral', 'happy', 'surprise', 'sadness', 'anger', 'disgust', 'fear', 'contempt']
@@ -130,7 +48,6 @@ class EmotionDetector:
             
         self.device = torch.device(device_str)
         self.model = None
-        self.smoothing_queue = collections.deque(maxlen=5) # 5-frame voting smooth window
         
         # Initialize MediaPipe face detector
         self.mp_face = None
@@ -168,23 +85,33 @@ class EmotionDetector:
         except Exception as e:
             print(f"Detector: Failed to initialize Haar Cascade fallback: {e}")
 
-        # Attempt to load PyTorch custom CNN model
-        if torch and model_type == 'cnn':
-            self.model = EmotionCNN().to(self.device)
+        # Attempt to load PyTorch custom model
+        if torch and model_type not in ['deepface', 'mock'] and model_type:
             # Default path if none provided
             if not model_path:
-                model_path = os.path.join(os.path.dirname(__file__), "models", "best_cnn.pth")
+                if model_type == 'cnn':
+                    model_path = os.path.join(os.path.dirname(__file__), "models", "best_cnn.pth")
+                else:
+                    model_path = os.path.join(os.path.dirname(__file__), "models", model_type)
                 
             if os.path.exists(model_path):
                 try:
+                    filename = os.path.basename(model_path).lower()
+                    if 'mobilenet' in filename:
+                        self.model = GrayscaleMobileNetV2().to(self.device)
+                    elif 'rnn' in filename:
+                        self.model = RNNAttentionNetwork().to(self.device)
+                    else:
+                        self.model = EmotionCNN().to(self.device)
+
                     self.model.load_state_dict(torch.load(model_path, map_location=self.device))
                     self.model.eval()
-                    print(f"Detector: Loaded custom CNN model weights from {model_path} successfully on {self.device}")
+                    print(f"Detector: Loaded PyTorch model weights from {model_path} successfully on {self.device}")
                 except Exception as e:
-                    print(f"Detector: Failed to load custom CNN state dict: {e}")
+                    print(f"Detector: Failed to load PyTorch state dict: {e}")
                     self.model = None
             else:
-                print(f"Detector: Custom CNN model weights not found at {model_path}. Running in Demo/Fallback mode.")
+                print(f"Detector: Model weights not found at {model_path}. Running in Demo/Fallback mode.")
                 self.model = None
 
     def switch_model(self, model_type):
@@ -197,21 +124,31 @@ class EmotionDetector:
         print(f"Detector: Switching model type from '{self.model_type}' to '{model_type}'")
         self.model_type = model_type
         
-        # Load weights if cnn is selected and not loaded
-        if torch and model_type == 'cnn':
-            if self.model is None:
-                self.model = EmotionCNN().to(self.device)
-            model_path = os.path.join(os.path.dirname(__file__), "models", "best_cnn.pth")
+        # Load weights if custom PyTorch model is selected
+        if torch and model_type not in ['deepface', 'mock']:
+            model_path = os.path.join(os.path.dirname(__file__), "models", model_type)
+            # fallback to cnn logic if strictly 'cnn'
+            if model_type == 'cnn':
+                 model_path = os.path.join(os.path.dirname(__file__), "models", "best_cnn.pth")
+
             if os.path.exists(model_path):
                 try:
+                    filename = os.path.basename(model_path).lower()
+                    if 'mobilenet' in filename:
+                        self.model = GrayscaleMobileNetV2().to(self.device)
+                    elif 'rnn' in filename:
+                        self.model = RNNAttentionNetwork().to(self.device)
+                    else:
+                        self.model = EmotionCNN().to(self.device)
+
                     self.model.load_state_dict(torch.load(model_path, map_location=self.device))
                     self.model.eval()
-                    print(f"Detector: Loaded custom CNN weights successfully on {self.device}")
+                    print(f"Detector: Loaded PyTorch weights successfully on {self.device}")
                 except Exception as e:
-                    print(f"Detector: Failed to load custom CNN state dict: {e}")
+                    print(f"Detector: Failed to load PyTorch state dict: {e}")
                     self.model = None
             else:
-                print(f"Detector: CNN weights not found at {model_path}. Running CNN in fallback mode.")
+                print(f"Detector: PyTorch weights not found at {model_path}. Running in fallback mode.")
                 self.model = None
         else:
             # Clear loaded model if switching to mock/deepface
@@ -301,14 +238,7 @@ class EmotionDetector:
             # Demo Fallback
             detected_emotion, conf_val = self._fallback_inference(face_img)
 
-        # 3. Add to sliding window smoothing queue
-        self.smoothing_queue.append(detected_emotion)
-        
-        # Calculate majority vote
-        counter = collections.Counter(self.smoothing_queue)
-        smoothed_emotion = counter.most_common(1)[0][0]
-        
-        return smoothed_emotion, conf_val, face_coords
+        return detected_emotion, conf_val, face_coords
 
     def _fallback_inference(self, face_img):
         """

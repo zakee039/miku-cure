@@ -1,201 +1,125 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/version-v0.3.3-ff69b4?style=for-the-badge" />
+<img src="https://img.shields.io/badge/version-v0.6.0-ff69b4?style=for-the-badge" />
 <img src="https://img.shields.io/badge/platform-Windows-0078d7?style=for-the-badge&logo=windows" />
 <img src="https://img.shields.io/badge/Electron-31.7.7-47848f?style=for-the-badge&logo=electron" />
 <img src="https://img.shields.io/badge/PyTorch-2.6.0-ee4c2c?style=for-the-badge&logo=pytorch" />
-<img src="https://img.shields.io/badge/DeepSeek-API-6c47ff?style=for-the-badge" />
+<img src="https://img.shields.io/badge/Vue3+FastAPI-WebUI-42b883?style=for-the-badge" />
 
 # 🎵 Miku Cure
 
-**初音未来情绪伴侣 · 桌面宠物式情绪感知系统**
+**初音未来情绪伴侣 · 桌面宠物式智能感知与交互系统**
 
-> 让 Miku 陪着你学习，实时感知你的情绪，在你疲惫或低落时轻轻说一句「加油哦 ✨」
-
-[English](#english) · [中文](#中文)
+> 让 Miku 陪着你学习，实时感知你的微表情情绪，在你疲惫或低落时轻轻为你放一首歌，或者跳支舞说一句「加油哦 ✨」
 
 </div>
 
 ---
 
-## 中文
+## ✨ 核心系统功能 (Features)
 
-### ✨ 功能简介
+Miku Cure 绝不仅仅是一个简单的桌面挂件。它结合了本地深度学习计算机视觉、大语言模型 (LLM) 和丰富的多媒体交互，打造了一个全方位的情绪陪伴生态。
 
-Miku Cure 是一个运行在 Windows 桌面右下角的透明悬浮小宠物。它通过摄像头实时识别你的表情情绪，结合番茄钟工作法，在你专注学习时默默陪伴，在你持续低落时主动用 AI 生成的暖心话语来鼓励你。
+### 1. 👻 沉浸式透明桌面宠物界面
+- **无边框透明悬浮窗**：常驻于屏幕右下角（支持自由拖拽定位），底层采用了防漂移的绝对坐标算法。
+- **动态弹性窗口自适应 (Elastic Resizing)**：当 Miku 处于日常待机模式时，保持精巧的 200x200 像素；**一旦开始播放跳舞视频，窗口会根据视频原始画幅（如 16:9 或 9:16）自动缩放并调整比例**，跳完后自动恢复，丝滑无比。
+- **自定义全局缩放**：支持 67%、100%、150% 三档全局 UI 缩放，适配不同分辨率的屏幕。
 
-### 🎉 v0.3.0 更新亮点
-- **全局多语言支持 (i18n)**：现已全面支持中文、日文、英文三种语言。不仅包括界面文本，连生成的专注报告日志文件名、内容表头，以及 Miku 暖心话语都会随语言切换！
-- **设置界面重构**：采用了全新的水平 Tab 标签页设计（模型、通用、API设置、关于），优化垂直空间；将所有单选框升级为点击下拉列表 (`<select>`)。
-- **内置 API 管理器**：不再仅仅依赖 `.env` 文件，现在你可以直接在“设置” -> “API 设置”中添加、编辑、删除你的 LLM API Key，支持所有 OpenAI 格式兼容的接口（并自动热加载到后端）。
-- **完善的生命周期管理**：修复了在 Windows 平台上的“僵尸进程”问题。关闭 Miku 前端窗口时，Python 进程树及所有的 WebSocket 服务将会被完全、干净地终结。
+### 2. 👁️ 实时情绪感知与防抖管线
+- **低功耗后台采集**：以 1 FPS 的频率在后台默默运行，通过 OpenCV 截取画面并送入推理模型。
+- **多模型热切推理架构**：支持自建的轻量级 PyTorch CNN、DeepFace 等多引擎热切换。
+- **高效识别算法**：稳定识别 7 种基本微表情（开心、悲伤、愤怒、惊讶、恐惧、厌恶、中性），为智能聊天与分析提供坚实的数据支撑。
 
-### 🖼️ 界面预览
+### 3. 🍅 专注番茄钟与专属多语言报告
+- **沉浸式专注模式**：设定时长后，Miku 会安静陪伴你倒计时。支持滚轮快速调节时长。
+- **专注情绪总结与日志**：专注结束后或中途打断，系统会自动将你这段时间内的情绪分布情况生成一份精美的 Markdown 报告，存入以日期命名的本地日志目录。
+- **全局多语言 (i18n)**：全系统支持无缝切换 **中文 / 日文 / 英文**，无论是生成的报告表头，还是 Miku 的反馈话语，均会同步切换。
 
-| 桌面宠物主窗口                                                | 全新设置窗口 (v0.3.0)               |
-|:------------------------------------------------------:|:------------------:|
-| 200×200 透明悬浮，Miku GIF 循环播放 | 标签页导航，内置多语言、API 管理、关于页面 |
+### 4. 🧠 智能聊天与隐式数据分析引擎
+- **长效记忆聊天室**：你可以随时打开聊天面板与 Miku 交流。系统内置记忆机制，每隔 8 小时会自动对过去的聊天记录进行总结（压缩存入 `memorize.md`），让 Miku 真的能“记住”你的偏好。
+- **一键深度报告分析**：专注结束后，你可以点击“让 Miku 分析”。底层会使用**时序竞争安全的隐式数据传递机制**，在你的聊天界面只显示一句简短的 "miku，帮我分析一下报告"，而后台则悄悄将完整的数据喂给 LLM。Miku 就能根据数据为你生成长篇的、贴心细致的情绪建议！
+- **内置 API 托管中心**：抛弃了繁琐的 `.env` 文件，你可以直接在优雅的 Tab 设置面板中添加多个兼容 OpenAI 格式的大模型接口（如 DeepSeek），并随时一键热切换。
 
-### 🧠 系统架构
+### 5. 🎵 丰富的多模态互动 (唱歌与跳舞)
+- **内置独立音乐播放器**：当你触发“听 Miku 唱歌”时，系统会调出迷你播放器 UI（支持上一首、下一首、暂停），并伴随专属的“唱歌状态”特殊循环动画。
+- **AI 主动关怀触发**：如果系统连续 60 秒检测到你处于负面情绪（如 Sadness / Anger），Miku 就会主动打断你的负能量，为你生成安慰话语，并邀请你一起听歌或看她跳舞！
 
-```
-┌────────────────────────────────────────────────────────┐
-│                 Electron 前端 (frontend/)              │
-│  透明悬浮窗 200×200 │ 番茄钟 │ 音乐播放器 │ 设置面板 (i18n) │
-└──────────────────────┬─────────────────────────────────┘
-                       │ WebSocket (ws://localhost:8765)
-┌──────────────────────▼─────────────────────────────────┐
-│                 Python 后端 (backend/)                 │
-│  camera.py → detector.py → websocket_server.py         │
-│  logger.py (多语言日志) │  llm.py (热切API)  │  main.py │
-└────────────────────────────────────────────────────────┘
-                       │
-           ┌───────────▼───────────┐
-           │  FER2013 训练模型      │
-           │  · 自建 PyTorch CNN   │
-           │  · HOG + SVM         │
-           │  · MobileNetV2 微调   │
-           └───────────────────────┘
-```
+### 6. 🔬 可视化深度学习训练站 (WebUI)
+位于 `train/` 目录下的高级功能，专为想要自己训练、微调情绪模型的极客玩家打造：
+- **Vue 3 + FastAPI 前后端分离架构**：在浏览器中就能优雅配置学习率、轮数、Dropout 等参数。
+- **双轨模型保存机制 (Dual-Save)**：独创 `4:1` 泛化评分算法。每次训练会自动产出验证集极限最高的 `*_acc.pth` 与泛化抗过拟合能力最强的 `*_gen.pth` 双模型。
+- **真·系统级进程挂起**：引入 `psutil`，重写后端暂停逻辑。点击暂停时，能够强制挂起带有 `num_workers` 多线程的 DataLoader 子进程树，**瞬间实现真正的 0 资源占用**。
+- **极简队列式训练**：打通了 CNN、Bi-LSTM + Multi-Head Attention、MobileNetV2 等各种魔改架构，点一下“开始”，喝杯咖啡，所有模型依次自动跑完！
 
-### 🚀 快速开始
+---
 
-#### 环境要求
+## 🖼️ 界面预览
 
+| 桌面宠物主窗口 | 设置与聊天窗口 | 可视化训练工作站 (WebUI) |
+|:---:|:---:|:---:|
+| 透明悬浮，看视频自动改变画幅 | 智能长效聊天，专属分析，多语言 | 浏览器一键启动，全程无痛监控网络参数 |
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
 - Windows 10/11
 - Python 3.10+
 - Node.js 18+
 - 摄像头（笔记本内置或外接均可）
-- LLM API Key（支持 DeepSeek 或任意兼容 OpenAI 格式的接口）
 
-#### 1. 克隆项目
-
+### 1. 克隆与安装
 ```bash
 git clone https://github.com/momo325/miku-cure.git
 cd miku-cure
+
+# 一键安装前后端环境与依赖库
+install.bat
 ```
 
-#### 2. 一键启动 
+### 2. 日常陪伴启动 
+双击运行 `start.bat`。系统会自动拉起 Python 视觉识别后端，并唤起前端 Miku 桌面悬浮窗。（拥有极其完善的生命周期管理：关闭 Miku 悬浮窗时系统将安全清理所有关联的子进程与 WebSocket，告别僵尸进程）
 
-在项目根目录下：
-- **首次使用**：双击运行 `install.bat`，它会自动帮你创建虚拟环境、安装前后端所有依赖。
-- **日常启动**：双击运行 `start.bat`，它会自动启动后端服务并打开前端 Miku 窗口。（**关闭 Miku 窗口时，后端服务也会自动安全退出**）
-
-#### 3. 配置 API
-
-应用启动后，右击 Miku 头像进入「⚙️ 设置」，在「API 设置」标签页中添加你的 LLM 接口并选中，即可激活 AI 陪伴功能。如果没有配置，将使用本地的随机预设暖心话语。
-
-#### 4. 训练模型（可选，耗时约 10-30 分钟）
-
-```bash
-# 需要先将 FER2013 数据集放置于 datasets/fer2013.csv
-cd train
-python train_models.py
-```
-
-训练完成后权重会保存至 `train/models/`，你可以将它们手动拷贝到 `backend/models/` 以供推理使用。
-
-#### 5. 准备 Miku 媒体资源
-
-你可以把自己喜欢的视频和歌曲放入 `miku/` 文件夹中。如果没有该文件夹，请在项目根目录创建它，并按如下结构放置你的自定资源：
-
+### 3. 配置自定媒体资源
+如果没有对应的文件夹，请在根目录创建 `miku/` 文件夹，按照以下结构放置你的专属媒体：
 ```
 miku/
-├── gif/      # 日常待机 MP4 动画（循环播放）
-├── dance/    # 跳舞视频 MP4（带音频）
-└── sing/     # 歌曲 OGG 音频文件
+├── gif/      # 日常待机循环动画 (MP4)
+├── dance/    # 触发跳舞时的全屏自适应视频 (MP4)
+└── sing/     # 触发唱歌时的本地音乐音频 (OGG / MP3)
 ```
 
-### 📁 项目结构
+### 4. 启动模型训练站 (可选进阶功能)
+进入 `train` 目录并运行 `start_webui.bat`，或在激活虚拟环境后手动执行：
+```bash
+cd train
+python webui.py
+```
+接着在浏览器访问 `http://localhost:8000`，导入 `fer2013` 数据集即可开始炼丹！
+
+---
+
+## 📁 核心架构蓝图
 
 ```
 miku-cure/
 ├── backend/
-│   ├── camera.py           # 摄像头低功耗采集（1 FPS）
-│   ├── detector.py         # 表情识别核心（CNN / SVM / DeepFace 三路热切换）
-│   ├── logger.py           # 跨越式情绪日志（支持多语言自动生成）
-│   ├── llm.py              # 兼容 OpenAI 的对话接口 + 本地多语种兜底语录
-│   ├── websocket_server.py # WebSocket 实时推送服务
-│   └── main.py             # 后端总调度（负面情绪干预 + 番茄钟结算）
-├── train/
-│   ├── train_models.py     # 模型训练脚本
-│   └── models/             # 训练产出目录
+│   ├── camera.py           # 极低功耗后台抽帧
+│   ├── detector.py         # 表情分类与滑动窗口防抖
+│   ├── llm.py              # LLM 通信层与 8小时自动压缩记忆系统
+│   ├── logger.py           # 多语言 Markdown 日志系统
+│   └── main.py             # 番茄钟结算与负面情绪主动干预中心
 ├── frontend/
-│   ├── main.js             # Electron 主进程（透明悬浮窗、IPC、进程树清理）
-│   ├── index.html          # 主界面（200×200 视口）
-│   ├── renderer.js         # 渲染进程（状态机、番茄钟、音乐播放器）
-│   ├── i18n.js             # (v0.3.0) 国际化翻译库 (zh/ja/en)
-│   ├── style.css           # 初音主题样式（毛玻璃 / 微动画）
-│   ├── settings.html       # 全新 Tab 式设置窗口
-│   ├── settings_renderer.js # 设置窗口逻辑 (含 API 管理器)
-│   ├── assets/             # 特殊状态媒体库
-│   └── package.json
-├── install.bat             # 一键环境安装脚本
-├── start.bat               # 一键联合启动脚本
-└── README.md
+│   ├── main.js             # Electron 进程防泄漏与弹性窗口核心
+│   ├── renderer.js         # 前端状态机与多媒体播放器 (音乐、跳舞)
+│   ├── chat_renderer.js    # 时序安全优化的智能聊天室
+│   └── i18n.js             # 实时切换中日英语言包
+└── train/
+    ├── webui.py            # FastAPI 训练调度枢纽 (支持系统级挂起)
+    ├── train_*.py          # 包含 CNN, RNN+Attention, MobileNetV2 各种魔改训练脚本
+    └── frontend/           # Vue 3 仪表盘源码
 ```
 
-### 🎨 功能详解
-
-#### 🔵 实时情绪识别
-- **采样频率**：1 FPS 低功耗后台采集
-- **情绪分类**：7 类（开心 😊 / 悲伤 😢 / 愤怒 😠 / 惊讶 😲 / 恐惧 😨 / 厌恶 🤢 / 中性 😐）
-- **防抖平滑**：滑动窗口多数投票，避免情绪闪烁
-
-#### 🍅 专注番茄钟与日志
-- 自定义专注时长
-- 倒计时结束后自动生成当次多语言情绪统计 Markdown 报告，自动保存在 `logs/YYYYMMDD/` 目录下。
-
-#### 💬 AI 主动干预与多语言陪伴
-- 连续 60 秒检测到负面情绪时触发，Miku 会根据当前设置的语言（中/日/英）和情绪特征向 LLM 请求安慰话语。
-- 断网或无 API 时，会自动降级使用内置的三语关怀语录库。
-
-#### ⚙️ 丰富的高级设置
-- **推理后端切换**：自建 PyTorch CNN / DeepFace / Mock
-- **界面与尺寸**：支持调整 67%、100%、150% 窗口缩放，中日英语言无缝切换
-- **API 管理**：本地化的 LLM Key 托管方案，支持多模型保存
-
-### 🤝 贡献
-欢迎提 Issue 和 PR！
-
-### 📄 许可证
-MIT License © 2026
-
----
-
-## English
-
-### ✨ Overview
-
-Miku Cure is a transparent floating desktop pet that lives in the bottom-right corner of your Windows screen. It uses your webcam to recognize facial emotions in real-time, combines with a Pomodoro timer, and silently accompanies you while studying — gently encouraging you with AI-generated warm messages when you're feeling down.
-
-### 🎉 What's New in v0.3.0
-- **Full i18n Support**: Seamlessly switch between English, Japanese, and Chinese. Translations apply to the UI, LLM prompts, fallback messages, and even generated Markdown log files.
-- **Redesigned Settings**: A new tabbed interface optimizing vertical space, featuring dropdowns instead of bulky radio buttons.
-- **Built-in API Manager**: Add, edit, and switch between OpenAI-compatible APIs right from the settings UI without needing to edit `.env` files.
-- **Robust Process Management**: Fixed zombie processes on Windows. Closing the app now thoroughly terminates the entire Python process tree and WebSockets.
-
-### 🚀 Quick Start
-
-```bash
-git clone https://github.com/momo325/miku-cure.git
-cd miku-cure
-
-# Just double click `install.bat` to setup environments.
-# Then double click `start.bat` to run the app!
-```
-
-After starting, right click Miku, open settings, and configure your LLM API in the "API Settings" tab.
-
-**Customizing Media:** You can add your favorite videos and songs by placing them into the `miku/` folder. Create `gif/` (idle MP4s), `dance/` (dance MP4s), and `sing/` (OGG audio) subdirectories to load your own content.
-
-### 🛠️ Tech Stack
-
-- **Frontend**: Electron 31 · HTML5 · CSS3 (glassmorphism) · Vanilla JS
-- **Backend**: Python 3.10 · PyTorch 2.6 · OpenCV · MediaPipe · WebSockets
-- **AI**: DeepSeek/OpenAI Compatible API · Custom CNN · MobileNetV2
-- **Data**: FER2013 dataset
-
-### 📄 License
-
+## 📄 许可证
 MIT License © 2026

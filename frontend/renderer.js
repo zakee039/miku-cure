@@ -83,6 +83,7 @@ const talentPanel = document.getElementById('talent-panel');
 
 const actionDance = document.getElementById('action-dance');
 const actionSing  = document.getElementById('action-sing');
+const actionChat  = document.getElementById('action-chat');
 
 const mediaPlayerPanel = document.getElementById('media-player-panel');
 const danceControlsPanel = document.getElementById('dance-controls-panel');
@@ -313,6 +314,10 @@ bubbleDismiss.addEventListener('click', () => {
 
 actionDance.addEventListener('click', startDance);
 actionSing.addEventListener('click', () => startSingPlaylist(Math.floor(Math.random() * singFiles.length)));
+actionChat.addEventListener('click', () => {
+  ipcRenderer.send('open-chat');
+  talentPanel.classList.add('hide');
+});
 
 // Media player controls
 playerPrev.addEventListener('click', () => {
@@ -578,6 +583,16 @@ function connectBackend() {
       if (data.type === 'focus_report') {
         showReportCard(data);
       }
+      
+      // Chat reply
+      if (data.type === 'chat_reply') {
+        ipcRenderer.send('chat-reply-from-backend', data.text);
+      }
+      
+      // Chat history
+      if (data.type === 'chat_history_response') {
+        ipcRenderer.send('chat-history-from-backend', data.history);
+      }
     } catch (e) {
       console.error("Error processing websocket message:", e);
     }
@@ -597,11 +612,35 @@ function showReportCard(data) {
   ipcRenderer.send('open-report', data);
 }
 
+// Forward chat message from chat window to backend
+ipcRenderer.on('forward-chat-to-backend', (event, payload) => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    if (typeof payload === 'string') {
+      ws.send(JSON.stringify({ type: 'chat_request', text: payload }));
+    } else {
+      ws.send(JSON.stringify({ type: 'chat_request', text: payload.text, hidden_context: payload.hidden_context }));
+    }
+  }
+});
+
+ipcRenderer.on('forward-history-request-to-backend', () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'get_chat_history' }));
+  }
+});
+
 // Handle actions triggered from the report window
 ipcRenderer.on('action-from-report', (event, action) => {
   if (action === 'dance') {
     startDance();
   } else if (action === 'sing') {
+    startSingPlaylist(Math.floor(Math.random() * singFiles.length));
+  }
+});
+
+// Handle actions triggered from the chat window
+ipcRenderer.on('action-from-chat', (event, action) => {
+  if (action === 'play_music') {
     startSingPlaylist(Math.floor(Math.random() * singFiles.length));
   }
 });

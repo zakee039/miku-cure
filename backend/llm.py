@@ -1,8 +1,7 @@
 import os
+import time
 import random
-from dotenv import load_dotenv
-
-load_dotenv()
+import datetime
 
 # ── Multilingual fallback messages ──────────────────────────────────────────
 FALLBACK_MESSAGES = {
@@ -154,10 +153,16 @@ Ask if the user would like you to sing or dance.
 
 class MikuLLM:
     def __init__(self):
-        self.api_key  = os.getenv("DEEPSEEK_API_KEY", "")
-        self.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-        self.model    = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        self.api_key  = ""
+        self.base_url = ""
+        self.model    = ""
         self.client   = None
+        self.chat_history = []
+        self.last_chat_time = time.time()
+        self.memory_dir = os.path.join(os.path.dirname(__file__), "..", "miku", "memorize")
+        self.active_chat_file = os.path.join(self.memory_dir, "active_chat.json")
+        os.makedirs(self.memory_dir, exist_ok=True)
+        self._load_active_chat()
         self._init_client()
 
     def _init_client(self):
@@ -179,6 +184,80 @@ class MikuLLM:
         self.api_key  = api_key  or self.api_key
         self.model    = model    or self.model
         self._init_client()
+
+    # ── Memory management ─────────────────────────────────────────────────────
+
+    def _load_active_chat(self):
+        import json
+        if os.path.exists(self.active_chat_file):
+            try:
+                with open(self.active_chat_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        self.chat_history = data.get('history', [])
+                        self.last_chat_time = data.get('last_chat_time', time.time())
+                    elif isinstance(data, list):
+                        self.chat_history = data
+                        self.last_chat_time = time.time()
+                print(f"LLM: Loaded active chat with {len(self.chat_history)} messages.")
+            except Exception as e:
+                print(f"LLM: Error loading active chat: {e}")
+
+    def _save_active_chat(self):
+        import json
+        try:
+            with open(self.active_chat_file, 'w', encoding='utf-8') as f:
+                json.dump({'history': self.chat_history, 'last_chat_time': self.last_chat_time}, f, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving active chat: {e}")
+
+    def _get_latest_memory(self):
+        if not os.path.exists(self.memory_dir):
+            return ""
+        files = [f for f in os.listdir(self.memory_dir) if f.endswith('memorize.md')]
+        if not files:
+            return ""
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(self.memory_dir, x)), reverse=True)
+        latest_file = os.path.join(self.memory_dir, files[0])
+        try:
+            with open(latest_file, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error reading memory: {e}")
+            return ""
+
+    def _summarize_memory(self):
+        if not self.chat_history or not self.client:
+            return
+            
+        print("LLM: Summarizing previous chat history into long-term memory...")
+        prompt = "请以客观简练的语言，总结昨天 Miku 与用户的以下对话核心内容，提炼出关键信息和情感状态，作为未来的记忆：\n\n"
+        for msg in self.chat_history:
+            role = "用户" if msg['role'] == 'user' else "Miku"
+            prompt += f"{role}: {msg['content']}\n"
+            
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300,
+                timeout=10.0
+            )
+            summary = resp.choices[0].message.content.strip()
+            
+            date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            filename = os.path.join(self.memory_dir, f"{date_str}memorize.md")
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(summary)
+            print(f"LLM: Saved memory to {filename}")
+            
+        except Exception as e:
+            print(f"LLM: Failed to summarize memory: {e}")
+            
+        # Clear history after summarizing
+        self.chat_history = []
+        self._save_active_chat()
 
     # ── Public methods ────────────────────────────────────────────────────────
 
@@ -226,15 +305,79 @@ class MikuLLM:
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=120,
-                timeout=5.0
+                max_tokens=300,
+                timeout=15.0
             )
             text = resp.choices[0].message.content.strip()
             text = text.replace('"', '').replace('\u201c', '').replace('\u201d', '')
+            if not text:
+                return fallback_msg
             return text
         except Exception as e:
             print(f"LLM API call failed: {e}. Using fallback.")
             return fallback_msg
+
+    def chat_with_miku(self, user_text: str, hidden_context: str = None, lang: str = 'zh') -> str:
+        now = time.time()
+        
+        # Check if new day and delay >= 8 hours
+        if self.chat_history:
+            last_dt = datetime.datetime.fromtimestamp(self.last_chat_time)
+            now_dt = datetime.datetime.fromtimestamp(now)
+            delay_hours = (now - self.last_chat_time) / 3600.0
+            
+            is_new_day = last_dt.date() != now_dt.date()
+            if is_new_day and delay_hours >= 8.0:
+                self._summarize_memory()
+
+        self.last_chat_time = now
+
+        if not self.client:
+            return "Miku 还没准备好大脑哦，请先在设置中配置 API~" if lang == 'zh' else "API not configured~"
+
+        # Load latest memory
+        memory = self._get_latest_memory()
+        memory_prompt = f"\n这是你上一轮的记忆摘要：\n{memory}\n请结合这些记忆与用户进行今天的对话。" if memory else ""
+        
+        if lang == 'ja':
+            sys_msg = f"あなたは初音ミクです。活発で可愛く、優しいトーンで簡潔に返答してください。{memory_prompt}\n【重要】歌を歌う場合は文頭に [PLAY_MUSIC]、画像を見せる場合は文頭に [SHOW_IMAGE] を置いてください。動作を描写する（「画像を出す」「歌う」など）のは構いませんが、画像や曲の「具体的な内容（ネギを持っている、曲名など）」は描写しないでください（ランダム再生のため矛盾が生じます）。「これ可愛いでしょう？」など抽象的に言及してください。"
+        elif lang == 'en':
+            sys_msg = f"You are Hatsune Miku, a cute and cheerful virtual companion. Keep your answers brief and sweet. {memory_prompt}\n[CRITICAL]: To play a song, start your reply with [PLAY_MUSIC]. To show a picture, start with [SHOW_IMAGE]. You may roleplay the action of taking out a picture or singing, but DO NOT describe the specific contents of the picture or the song (e.g., holding a leek, specific lyrics), as they are randomly selected. Use broad descriptions like 'Isn\'t this cute?'."
+        else:
+            sys_msg = f"你是初音未来（Miku），一个在桌面上陪伴用户学习和工作的可爱虚拟看板娘。请用活泼、可爱、温柔的语气简短回复。{memory_prompt}\n【最高指令】：如果你想放歌，必须将 [PLAY_MUSIC] 放在回复的最开头；如果你想发表情包，必须将 [SHOW_IMAGE] 放在回复的最开头。你可以用文字描述‘拿出表情包’或‘准备唱歌’的动作，但【绝对不要】描述表情包或歌曲的具体内容（比如不要说‘抱着葱’、不要说具体歌名或歌词），因为内容是系统随机播放的，会产生矛盾。请使用宽泛抽象的描述，比如‘看这个，本小姐可爱吧~’或‘听听这首歌放松下~’。"
+
+        messages = [{"role": "system", "content": sys_msg}]
+        
+        # Add recent history (last 10 messages)
+        recent_history = self.chat_history[-10:]
+        messages.extend(recent_history)
+        
+        # Save user message to history immediately so UI can fetch it during generation
+        self.chat_history.append({"role": "user", "content": user_text})
+        self._save_active_chat()
+
+        new_msg = {"role": "user", "content": user_text}
+        if hidden_context:
+            new_msg["content"] += f"\n\n{hidden_context}"
+        messages.append(new_msg)
+        
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=500,
+                timeout=8.0
+            )
+            reply = resp.choices[0].message.content.strip()
+            
+            # Save assistant reply to history
+            self.chat_history.append({"role": "assistant", "content": reply})
+            self._save_active_chat()
+            
+            return reply
+        except Exception as e:
+            print(f"LLM API call failed: {e}")
+            return "网络有点不通畅哦，Miku 没听清~" if lang == 'zh' else "Network error~"
 
 
 if __name__ == '__main__':

@@ -72,21 +72,24 @@ def handle_frontend_message(data):
         total_seconds = sum(emotion_durations.values()) or 1
         stats = {em: (emotion_durations.get(em, 0) / total_seconds) * 100 for em in detector.EMOTIONS}
         
-        # 2. Get LLM response
-        comment = llm.get_focus_end_response(focus_duration_mins, stats, lang=current_lang)
-        
-        # 3. Finalize log entry in markdown
-        final_stats, actual_minutes = logger.end_session(completed=completed, miku_comment=comment)
-        
-        # 4. Push report back to Electron frontend
-        ws_server.send_to_all({
-            "type": "focus_report",
-            "duration_minutes": actual_minutes,
-            "stats": final_stats,
-            "comment": comment,
-            "completed": completed
-        })
-        print("Backend: Focus ended. Report sent to frontend.")
+        def _process_end_focus():
+            # 2. Get LLM response
+            comment = llm.get_focus_end_response(focus_duration_mins, stats, lang=current_lang)
+            
+            # 3. Finalize log entry in markdown
+            final_stats, actual_minutes = logger.end_session(completed=completed, miku_comment=comment)
+            
+            # 4. Push report back to Electron frontend
+            ws_server.send_to_all({
+                "type": "focus_report",
+                "duration_minutes": actual_minutes,
+                "stats": final_stats,
+                "comment": comment,
+                "completed": completed
+            })
+            print("Backend: Focus ended. Report sent to frontend.")
+            
+        threading.Thread(target=_process_end_focus, daemon=True).start()
         
     elif msg_type == 'bubble_dismissed':
         # User dismissed the Miku care bubble, allow triggers to happen again
@@ -125,6 +128,25 @@ def handle_frontend_message(data):
         else:
             camera.stop()
             print("Backend: Camera stopped by user.")
+
+    elif msg_type == 'chat_request':
+        text = data.get('text', '')
+        hidden_context = data.get('hidden_context', None)
+        def _process_chat():
+            reply = llm.chat_with_miku(text, hidden_context=hidden_context, lang=current_lang)
+            ws_server.send_to_all({
+                'type': 'chat_reply',
+                'text': reply
+            })
+            print(f"Backend: Handled chat request")
+        threading.Thread(target=_process_chat, daemon=True).start()
+
+    elif msg_type == 'get_chat_history':
+        ws_server.send_to_all({
+            'type': 'chat_history_response',
+            'history': llm.chat_history
+        })
+        print(f"Backend: Sent chat history to frontend")
 
 def main_loop():
     global is_running, focus_active

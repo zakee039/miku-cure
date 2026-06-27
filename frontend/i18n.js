@@ -60,6 +60,12 @@ const translations = {
     'btn.bubble_sing':     '🎵 唱歌',
     'btn.bubble_dismiss':  '下次吧',
     'player.no_song':      '当前无播放',
+    'btn.chat':            '聊天',
+    'chat.title':          '与 Miku 聊天',
+    'chat.welcome':        '你好呀！今天感觉怎么样呢？',
+    'chat.placeholder':    '说点什么...',
+    'chat.send':           '发送',
+    'chat.analyze_report_msg': 'miku，miku，帮我分析一下报告',
 
     // Tooltips
     'tip.emotion_badge':   '点击断开/连接摄像头',
@@ -93,6 +99,7 @@ const translations = {
     'report.btn_sing':     '听miku唱歌',
     'report.btn_dance':    '看miku跳舞',
     'report.btn_close':    '谢谢miku',
+    'report.btn_analyze':  '让miku分析',
 
     // API Settings
     'api.title':           'API 设置',
@@ -109,8 +116,10 @@ const translations = {
     'api.form.cancel':     '取消',
     'api.edit':            '编辑',
     'api.delete':          '删除',
-    'api.none':            '未配置（使用 .env 默认值）',
+    'api.none':            '请添加并选择 API',
     'api.no_model':        '请先选择 API',
+    'api.fetching_models': '获取中...',
+    'btn.train':           '去训练',
   },
 
   /* ── 日本語 ─────────────────────────────────────────────────── */
@@ -170,6 +179,12 @@ const translations = {
     'btn.bubble_sing':     '🎵 歌う',
     'btn.bubble_dismiss':  '今度ね',
     'player.no_song':      '再生中なし',
+    'btn.chat':            'チャット',
+    'chat.title':          'ミクとチャット',
+    'chat.welcome':        'やっほー！今日はどんな感じ？',
+    'chat.placeholder':    '何か話して...',
+    'chat.send':           '送信',
+    'chat.analyze_report_msg': 'ミク、ミク、レポートを分析して',
 
     // Tooltips
     'tip.emotion_badge':   'クリックでカメラ切断/接続',
@@ -203,6 +218,7 @@ const translations = {
     'report.btn_sing':     'ミクに歌ってもらう',
     'report.btn_dance':    'ミクのダンスを見る',
     'report.btn_close':    'ありがとう',
+    'report.btn_analyze':  'ミクに分析してもらう',
 
     // API Settings
     'api.title':           'API 設定',
@@ -219,8 +235,10 @@ const translations = {
     'api.form.cancel':     'キャンセル',
     'api.edit':            '編集',
     'api.delete':          '削除',
-    'api.none':            '未設定（.env のデフォルトを使用）',
+    'api.none':            'APIを追加して選択してください',
     'api.no_model':        'まず API を選択してください',
+    'api.fetching_models': '取得中...',
+    'btn.train':           '学習へ',
   },
 
   /* ── English ─────────────────────────────────────────────────── */
@@ -280,6 +298,12 @@ const translations = {
     'btn.bubble_sing':     '🎵 Sing',
     'btn.bubble_dismiss':  'Maybe later',
     'player.no_song':      'Nothing playing',
+    'btn.chat':            'Chat',
+    'chat.title':          'Chat with Miku',
+    'chat.welcome':        'Hello there! How are you feeling today?',
+    'chat.placeholder':    'Say something...',
+    'chat.send':           'Send',
+    'chat.analyze_report_msg': 'Miku, Miku, please analyze my report',
 
     // Tooltips
     'tip.emotion_badge':   'Click to toggle camera',
@@ -313,6 +337,7 @@ const translations = {
     'report.btn_sing':     'Hear Miku sing',
     'report.btn_dance':    'Watch Miku dance',
     'report.btn_close':    'Thanks Miku!',
+    'report.btn_analyze':  'Let Miku Analyze',
 
     // API Settings
     'api.title':           'API Settings',
@@ -329,8 +354,10 @@ const translations = {
     'api.form.cancel':     'Cancel',
     'api.edit':            'Edit',
     'api.delete':          'Delete',
-    'api.none':            'Not configured (using .env defaults)',
+    'api.none':            'Please add and select an API',
     'api.no_model':        'Select an API first',
+    'api.fetching_models': 'Fetching...',
+    'btn.train':           'Go Train',
   }
 };
 

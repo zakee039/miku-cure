@@ -87,6 +87,34 @@
     }
 
     /* ── Select Dropdown ─────────────────────────────────────── */
+    .engine-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .engine-divider {
+      width: 2px;
+      height: 24px;
+      background: #ff5f56;
+      flex-shrink: 0;
+      border-radius: 1px;
+    }
+
+    .train-btn {
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #ff5f56;
+      background: #fff5f5;
+      border: 1.5px solid #ff5f56;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .train-btn:hover { background: #ffebeb; }
+
     .miku-select {
       appearance: none;
       -webkit-appearance: none;
@@ -360,11 +388,14 @@
 
       <div class="section">
         <label class="field-label" data-i18n="model.engine.label">推理引擎</label>
-        <select class="miku-select" id="model-select">
-          <option value="cnn"       data-i18n-option="model.cnn.name">Custom PyTorch CNN</option>
-          <option value="deepface"  data-i18n-option="model.deepface.name">DeepFace（预训练）</option>
-          <option value="mock"      data-i18n-option="model.mock.name">亮度模拟器</option>
-        </select>
+        <div class="engine-row">
+          <select class="miku-select" id="model-select">
+            <option value="deepface"  data-i18n-option="model.deepface.name">DeepFace（预训练）</option>
+            <option value="mock"      data-i18n-option="model.mock.name">亮度模拟器</option>
+          </select>
+          <div class="engine-divider"></div>
+          <button class="train-btn" id="btn-train" data-i18n="btn.train">去训练</button>
+        </div>
       </div>
 
       <div class="tip" id="model-tip" data-i18n="model.tip">
@@ -405,7 +436,7 @@
         <div class="section">
           <label class="field-label" data-i18n="api.active.api">接口</label>
           <select class="miku-select" id="api-active-select">
-            <option value="" data-i18n="api.none">未配置（使用 .env 默认值）</option>
+            <option value="" data-i18n="api.none">请添加并选择 API</option>
           </select>
         </div>
         <div class="section">

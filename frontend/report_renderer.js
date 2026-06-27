@@ -7,8 +7,9 @@ const reportCommentText = document.getElementById('report-comment-text');
 
 const btnSing  = document.getElementById('btn-sing');
 const btnDance = document.getElementById('btn-dance');
-const btnClose = document.getElementById('btn-close');
+const btnAnalyze = document.getElementById('btn-analyze');
 const btnCloseIcon = document.getElementById('btn-close-icon');
+let currentReportData = null;
 
 // Emotion key → emoji (language-neutral)
 const emotionEmoji = {
@@ -26,6 +27,7 @@ applyI18n();
 
 // Load report data sent from main process
 ipcRenderer.on('load-report', (event, data) => {
+  currentReportData = data;
   const dur = data.duration_minutes;
   reportPeriod.textContent = `${data.startTime || '--:--'} ~ ${data.endTime || '--:--'}  (${dur} min)`;
 
@@ -82,5 +84,17 @@ btnDance.addEventListener('click', () => {
   window.close();
 });
 
-btnClose.addEventListener('click', () => window.close());
+btnAnalyze.addEventListener('click', () => {
+  if (!currentReportData) return;
+  const dur = currentReportData.duration_minutes;
+  let statsStr = '';
+  for (const [em, pct] of Object.entries(currentReportData.stats || {})) {
+    if (pct > 0.5) statsStr += `${t('emotion.' + em) || em}(${Math.round(pct)}%), `;
+  }
+  const displayPrompt = t('chat.analyze_report_msg');
+  const prompt = `(这是后台发送的数据，请不要复述这些数据，直接开始分析) 这是一份我的专注总结报告，专注时长：${dur}分钟。情绪分布：${statsStr}。请帮我详细分析一下我的状态，并给我一些建议！（回复可以长一点）`;
+  ipcRenderer.send('analyze-report-request', prompt, displayPrompt);
+  window.close();
+});
+
 if (btnCloseIcon) btnCloseIcon.addEventListener('click', () => window.close());

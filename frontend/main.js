@@ -1,6 +1,7 @@
 const { app, BrowserWindow, screen, ipcMain } = require('electron');
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const fs = require('fs');
+const { spawn, execSync, exec } = require('child_process');
 
 // RTX 5060 Blackwell GPU is not supported by Electron's GPU process (sm_120).
 // Disable hardware acceleration to prevent GPU process crashes.
@@ -9,6 +10,7 @@ app.disableHardwareAcceleration();
 let mainWindow;
 let settingsWindow = null;
 let reportWindow = null;
+let chatWindow = null;
 let backendProcess = null;
 let backendPid = null;
 
@@ -70,6 +72,10 @@ function createWindow() {
     if (reportWindow) {
       reportWindow.close();
       reportWindow = null;
+    }
+    if (chatWindow) {
+      chatWindow.close();
+      chatWindow = null;
     }
   });
 }
@@ -167,9 +173,84 @@ ipcMain.on('action-from-report', (event, action) => {
   }
 });
 
+ipcMain.on('analyze-report-request', (event, prompt, displayPrompt) => {
+  if (!chatWindow) {
+    chatWindow = new BrowserWindow({
+      width: 400,
+      height: 520,
+      title: "Miku Chat",
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
+    chatWindow.setMenu(null);
+    chatWindow.loadFile('chat.html');
+    chatWindow.on('closed', () => {
+      chatWindow = null;
+    });
+    
+    chatWindow.webContents.on('did-finish-load', () => {
+      chatWindow.webContents.send('populate-chat-input', prompt, displayPrompt);
+    });
+  } else {
+    chatWindow.focus();
+    chatWindow.webContents.send('populate-chat-input', prompt, displayPrompt);
+  }
+});
+
+// ── Chat Window IPC ──
+ipcMain.on('open-chat', () => {
+  if (chatWindow) {
+    chatWindow.focus();
+    return;
+  }
+  chatWindow = new BrowserWindow({
+    width: 400,
+    height: 520,
+    title: "Miku Chat",
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+  chatWindow.setMenu(null);
+  chatWindow.loadFile('chat.html');
+  chatWindow.on('closed', () => {
+    chatWindow = null;
+  });
+});
+
+ipcMain.on('chat-message', (event, text) => {
+  if (mainWindow) mainWindow.webContents.send('forward-chat-to-backend', text);
+});
+
+ipcMain.on('action-from-chat', (event, action) => {
+  if (mainWindow) mainWindow.webContents.send('action-from-chat', action);
+});
+
+ipcMain.on('chat-reply-from-backend', (event, reply) => {
+  if (chatWindow) chatWindow.webContents.send('chat-reply-from-backend', reply);
+});
+
+ipcMain.on('request-chat-history', () => {
+  if (mainWindow) mainWindow.webContents.send('forward-history-request-to-backend');
+});
+
+ipcMain.on('chat-history-from-backend', (event, history) => {
+  if (chatWindow) chatWindow.webContents.send('chat-history-from-backend', history);
+});
+
 ipcMain.on('lang-changed', (event, lang) => {
   if (mainWindow)   mainWindow.webContents.send('lang-changed', lang);
   if (reportWindow) reportWindow.webContents.send('lang-changed', lang);
+  if (chatWindow)   chatWindow.webContents.send('lang-changed', lang);
 });
 
 // Forward LLM API config change from settings window to main renderer
@@ -207,6 +288,26 @@ ipcMain.on('resize-window', (event, { contentWidth, contentHeight, scale }) => {
   mainWindow.webContents.setZoomFactor(scale);
 });
 
+// Handle request to list available model files
+ipcMain.handle('get-models', async () => {
+  const modelsDir = path.join(__dirname, '..', 'backend', 'models');
+  try {
+    if (!fs.existsSync(modelsDir)) return [];
+    const files = fs.readdirSync(modelsDir);
+    return files.filter(f => f.endsWith('.pth'));
+  } catch (err) {
+    console.error('Error reading models directory:', err);
+    return [];
+  }
+});
+
+// Handle request to start the training process independently
+ipcMain.on('run-train', () => {
+  const trainBat = path.join(__dirname, '..', 'train.bat');
+  // Use start command to open a new terminal window completely independent of this process
+  exec(`start "Miku Training" "${trainBat}"`);
+});
+
 app.on('ready', createWindow);
 
 // Kill backend process when Electron fully quits (safety net)
@@ -221,7 +322,8 @@ ipcMain.on('start-backend', (event, pythonExe) => {
   backendProcess = spawn(pythonExe, ['main.py'], {
     cwd: backendDir,
     detached: false,          // keep bound to Electron
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PYTHONUNBUFFERED: '1' }
   });
   backendPid = backendProcess.pid;
   backendProcess.stdout.on('data', d => process.stdout.write('[Backend] ' + d));
