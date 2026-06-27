@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { t } from '../i18n'
 
+const loadState = (key: string, defaultVal: any) => {
+  const val = localStorage.getItem(`miku_cure_${key}`)
+  return val ? JSON.parse(val) : defaultVal
+}
+
 const isTraining = ref(false)
+const isPaused = ref(false)
+const showAbortModal = ref(false)
 const epoch = ref(0)
 const totalEpochs = ref(3) // 默认为3（快速测试的配置）
 const loss = ref(0.0)
@@ -11,17 +18,55 @@ const logs = ref<string[]>([])
 
 const datasets = ref<string[]>([])
 const configDataset = ref('')
-const configModel = ref('cnn')
-const configTrainAll = ref(false)
-const configLr = ref(0.0001)
-const configDynamicLr = ref(false)
-const configEpochs = ref(30)
-const configBatchSize = ref(64)
 
-const displayTotalEpochs = computed(() => isTraining.value ? totalEpochs.value : configEpochs.value)
+type ModelConfig = { lr: number, dynamicLr: boolean, epochs: number, batchSize: number }
+const defaultConfigs: Record<string, ModelConfig> = {
+  cnn: { lr: 0.0001, dynamicLr: false, epochs: 30, batchSize: 64 },
+  rnn: { lr: 0.0001, dynamicLr: false, epochs: 30, batchSize: 64 },
+  mobilenet: { lr: 0.0001, dynamicLr: false, epochs: 30, batchSize: 64 }
+}
+
+// 确保读取出的配置有全部字段
+const loadedConfigs = loadState('modelConfigs', defaultConfigs)
+const mergedConfigs = { ...defaultConfigs, ...loadedConfigs }
+const modelConfigs = ref<Record<string, ModelConfig>>(mergedConfigs)
+
+const selectedModels = ref<string[]>(loadState('selectedModels', ['cnn']))
+const editingModel = ref<string>('cnn')
+const trainingQueue = ref<string[]>(loadState('trainingQueue', []))
+const currentTrainingModel = ref<string>(loadState('currentTrainingModel', ''))
+
+watch(selectedModels, (val) => localStorage.setItem('miku_cure_selectedModels', JSON.stringify(val)), { deep: true })
+watch(trainingQueue, (val) => localStorage.setItem('miku_cure_trainingQueue', JSON.stringify(val)), { deep: true })
+watch(currentTrainingModel, (val) => localStorage.setItem('miku_cure_currentTrainingModel', JSON.stringify(val)))
+watch(modelConfigs, (val) => localStorage.setItem('miku_cure_modelConfigs', JSON.stringify(val)), { deep: true })
+
+const modelNameMap: Record<string, string> = {
+  cnn: 'EmotionCNN',
+  rnn: 'RNN+Attention',
+  mobilenet: 'MobileNetV2'
+}
+
+const toggleModel = (model: string) => {
+  editingModel.value = model
+  const idx = selectedModels.value.indexOf(model)
+  if (idx > -1) {
+    selectedModels.value.splice(idx, 1)
+  } else {
+    selectedModels.value.push(model)
+  }
+}
+
+const displayTotalEpochs = computed(() => {
+  if (isTraining.value) return totalEpochs.value
+  return modelConfigs.value[editingModel.value]?.epochs || 30
+})
+
 const displayLr = computed(() => {
   if (isTraining.value) return lr.value
-  return configDynamicLr.value ? t('auto') : configLr.value
+  const conf = modelConfigs.value[editingModel.value]
+  if (!conf) return '1e-4'
+  return conf.dynamicLr ? t('auto') : conf.lr
 })
 
 let ws: WebSocket | null = null
@@ -30,6 +75,7 @@ const connectWS = () => {
   ws = new WebSocket(`ws://${window.location.host}/ws/train`)
   ws.onopen = () => {
     ws?.send(JSON.stringify({ action: 'get_datasets' }))
+    ws?.send(JSON.stringify({ action: 'get_status' }))
   }
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)
@@ -39,7 +85,42 @@ const connectWS = () => {
         configDataset.value = datasets.value[0]
       }
     } else if (data.type === 'status') {
-      isTraining.value = data.status === 'running'
+      if (data.status === 'running') {
+        isTraining.value = true
+        isPaused.value = false
+        if (data.model) currentTrainingModel.value = data.model
+      } else if (data.status === 'paused') {
+        isTraining.value = true
+        isPaused.value = true
+        if (data.model) currentTrainingModel.value = data.model
+      } else if (data.status === 'stopped') {
+        const wasTraining = isTraining.value
+        isTraining.value = false
+        isPaused.value = false
+        if (wasTraining && trainingQueue.value.length > 0) {
+          setTimeout(() => {
+            processNextInQueue()
+          }, 1000)
+        } else if (!wasTraining) {
+            // it was just a status sync on connect, do nothing
+        } else {
+            currentTrainingModel.value = ''
+        }
+      }
+    } else if (data.type === 'recent_logs') {
+      logs.value = data.logs
+      // Extract latest epoch/loss to restore UI state
+      data.logs.forEach((line: string) => {
+        const epochMatch = line.match(/Epoch (\d+)\/(\d+)/)
+        if (epochMatch) {
+          epoch.value = parseInt(epochMatch[1])
+          totalEpochs.value = parseInt(epochMatch[2])
+        }
+        const lossMatch = line.match(/Loss: ([\d.]+)/)
+        if (lossMatch) {
+          loss.value = parseFloat(lossMatch[1])
+        }
+      })
     } else if (data.type === 'log') {
       logs.value.push(data.line)
       if (logs.value.length > 15) logs.value.shift()
@@ -67,18 +148,36 @@ onUnmounted(() => {
 })
 
 const startTraining = () => {
+  if (selectedModels.value.length === 0) return
+  trainingQueue.value = [...selectedModels.value]
+  processNextInQueue()
+}
+
+const processNextInQueue = () => {
+  if (trainingQueue.value.length === 0) {
+    isTraining.value = false
+    currentTrainingModel.value = ''
+    return
+  }
+  const currentModel = trainingQueue.value.shift()
+  if (!currentModel) return
+  
+  currentTrainingModel.value = currentModel
+
+  const conf = modelConfigs.value[currentModel]
+  
   logs.value = []
-  lr.value = configLr.value.toExponential(0)
-  totalEpochs.value = configEpochs.value
+  lr.value = conf.lr.toExponential(0)
+  totalEpochs.value = conf.epochs
   
   const payload = {
     action: 'start',
     dataset: configDataset.value,
-    model: configTrainAll.value ? 'ALL' : configModel.value,
-    lr: configLr.value,
-    dynamicLr: configDynamicLr.value,
-    epochs: configEpochs.value,
-    batchSize: configBatchSize.value
+    model: currentModel,
+    lr: conf.lr,
+    dynamicLr: conf.dynamicLr,
+    epochs: conf.epochs,
+    batchSize: conf.batchSize
   }
 
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -92,10 +191,34 @@ const startTraining = () => {
 }
 
 const pauseTraining = () => {
-  // Not supported by simple subprocess
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ action: isPaused.value ? 'resume' : 'pause' }))
+  }
 }
 
 const stopTraining = () => {
+  showAbortModal.value = true
+}
+
+const returnToHome = () => {
+  trainingQueue.value = []
+  currentTrainingModel.value = ''
+  epoch.value = 0
+  loss.value = 0.0
+  isTraining.value = false
+  isPaused.value = false
+  logs.value = []
+}
+
+const confirmAbort = () => {
+  showAbortModal.value = false
+  trainingQueue.value = []
+  currentTrainingModel.value = ''
+  epoch.value = 0
+  loss.value = 0.0
+  isTraining.value = false
+  isPaused.value = false
+  logs.value = []
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ action: 'stop' }))
   }
@@ -104,14 +227,6 @@ const stopTraining = () => {
 
 <template>
   <div class="miku-card-mecha training-console">
-    <div class="console-header">
-      <h3>{{ t('trainingStation') }}</h3>
-      <div class="status-indicator" :class="{ active: isTraining }">
-        <span class="dot"></span>
-        {{ isTraining ? t('trainRunning') : t('systemIdle') }}
-      </div>
-    </div>
-
     <div class="config-panel" v-if="!isTraining && epoch === 0">
       <div class="config-group">
         <label>{{ t('dataset') }}</label>
@@ -123,70 +238,82 @@ const stopTraining = () => {
       <div class="config-group">
         <div class="config-header">
           <label>{{ t('modelArchitecture') }}</label>
-          <label class="dynamic-lr-label">
-            <input type="checkbox" v-model="configTrainAll" class="miku-checkbox" />
-            {{ t('trainAll') }}
-          </label>
         </div>
-        <div class="model-tabs" :class="{ disabled: configTrainAll }">
+        <div class="model-tabs">
           <button 
             class="tab-btn" 
-            :class="{ active: configModel === 'cnn' && !configTrainAll }" 
-            :disabled="configTrainAll"
-            @click="configModel = 'cnn'">EmotionCNN</button>
+            :class="{ active: selectedModels.includes('cnn') }" 
+            @click="toggleModel('cnn')">EmotionCNN</button>
           <button 
             class="tab-btn" 
-            :class="{ active: configModel === 'rnn' && !configTrainAll }" 
-            :disabled="configTrainAll"
-            @click="configModel = 'rnn'">RNN+Attention</button>
+            :class="{ active: selectedModels.includes('rnn') }" 
+            @click="toggleModel('rnn')">RNN+Attention</button>
           <button 
             class="tab-btn" 
-            :class="{ active: configModel === 'mobilenet' && !configTrainAll }" 
-            :disabled="configTrainAll"
-            @click="configModel = 'mobilenet'">MobileNetV2</button>
+            :class="{ active: selectedModels.includes('mobilenet') }" 
+            @click="toggleModel('mobilenet')">MobileNetV2</button>
         </div>
       </div>
 
+      <div class="config-group" style="margin-top: 8px;">
+        <div class="config-header">
+          <label>{{ modelNameMap[editingModel] }} {{ t('paramAdjust') }}</label>
+        </div>
         <div class="hyperparams-grid">
           <div class="config-group">
             <div class="config-header">
-              <label>{{ t('learningRate') }}</label>
+              <label>{{ t('initialLr') }}</label>
               <label class="dynamic-lr-label">
-                <input type="checkbox" v-model="configDynamicLr" class="miku-checkbox" />
+                <input type="checkbox" v-model="modelConfigs[editingModel].dynamicLr" class="miku-checkbox" />
                 {{ t('dynamicLr') }}
               </label>
             </div>
-            <input type="number" v-model="configLr" step="0.0001" class="miku-input" :disabled="configDynamicLr" :class="{ disabled: configDynamicLr }" />
+            <input type="number" v-model="modelConfigs[editingModel].lr" step="0.0001" class="miku-input" />
           </div>
           <div class="config-group">
             <div class="config-header">
               <label>{{ t('totalEpochs') }}</label>
             </div>
-            <input type="number" v-model="configEpochs" class="miku-input" />
+            <input type="number" v-model="modelConfigs[editingModel].epochs" class="miku-input" />
           </div>
           <div class="config-group">
             <div class="config-header">
               <label>{{ t('batchSize') }}</label>
             </div>
-            <input type="number" v-model="configBatchSize" class="miku-input" />
+            <input type="number" v-model="modelConfigs[editingModel].batchSize" class="miku-input" />
           </div>
+        </div>
       </div>
     </div>
 
-      <div class="metrics-grid">
-        <div class="metric-box">
-          <span class="label">{{ t('epoch') }}</span>
-          <span class="value">{{ epoch }} / {{ displayTotalEpochs }}</span>
-        </div>
-        <div class="metric-box">
-          <span class="label">{{ t('loss') }}</span>
-          <span class="value highlight">{{ loss.toFixed(4) }}</span>
-        </div>
-        <div class="metric-box">
-          <span class="label">{{ t('lr') }}</span>
-          <span class="value">{{ displayLr }}</span>
-        </div>
+    <!-- 仅在训练或有训练数据时显示的训练看板 -->
+    <div class="training-status-panel" v-if="isTraining || epoch > 0">
+      <h2 class="training-title">{{ isTraining ? t('trainingInProgress') : t('trainingCompleteTitle') }}</h2>
+      <div class="task-info">
+        <span class="label">{{ t('currentTask') }}: {{ currentTrainingModel ? modelNameMap[currentTrainingModel] : 'N/A' }}</span>
+        <span class="label">{{ t('remainingTasks') }}: {{ trainingQueue.length }}</span>
       </div>
+      <div class="dashed-divider"></div>
+      <template v-if="!isTraining && epoch > 0">
+        <div class="completion-text">{{ t('trainingCompleteDesc') }}</div>
+        <div class="dashed-divider"></div>
+      </template>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-box">
+        <span class="label">{{ t('epoch') }}</span>
+        <span class="value">{{ epoch }} / {{ displayTotalEpochs }}</span>
+      </div>
+      <div class="metric-box">
+        <span class="label">{{ t('loss') }}</span>
+        <span class="value highlight">{{ loss.toFixed(4) }}</span>
+      </div>
+      <div class="metric-box">
+        <span class="label">{{ t('lr') }}</span>
+        <span class="value">{{ displayLr }}</span>
+      </div>
+    </div>
 
     <div class="progress-bar-container">
       <div class="progress-fill" :style="{ width: `${totalEpochs > 0 ? (epoch / totalEpochs) * 100 : 0}%` }"></div>
@@ -197,15 +324,34 @@ const stopTraining = () => {
     </div>
 
     <div class="controls">
-      <button v-if="!isTraining" class="btn-primary start-btn" @click="startTraining">
-        {{ epoch > 0 ? t('resume') : t('startTraining') }}
-      </button>
-      <button v-else class="btn-accent pause-btn" @click="pauseTraining">
-        {{ t('pause') }}
-      </button>
-      <button class="btn-primary stop-btn" :disabled="epoch === 0 && !isTraining" @click="stopTraining">
-        {{ t('abort') }}
-      </button>
+      <template v-if="!isTraining && epoch === 0">
+        <button class="btn-primary start-btn" :disabled="selectedModels.length === 0" @click="startTraining">
+          {{ t('startTraining') }}
+        </button>
+      </template>
+      <template v-else-if="isTraining">
+        <button class="btn-accent pause-btn" @click="pauseTraining">
+          {{ isPaused ? t('resumeTraining') : t('pause') }}
+        </button>
+        <button class="btn-primary stop-btn" @click="stopTraining">
+          {{ t('abort') }}
+        </button>
+      </template>
+      <template v-else-if="!isTraining && epoch > 0">
+        <button class="btn-primary return-btn" @click="returnToHome">
+          {{ t('returnHome') }}
+        </button>
+      </template>
+    </div>
+
+    <div class="miku-modal-overlay" v-if="showAbortModal">
+      <div class="miku-modal">
+        <div class="modal-body">{{ t('reallyAbort') }}</div>
+        <div class="modal-actions">
+          <button class="modal-btn abort-btn-red" @click="confirmAbort">{{ t('confirmAbort') }}</button>
+          <button class="modal-btn resume-btn-white" @click="showAbortModal = false">{{ t('modalResume') }}</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -215,50 +361,6 @@ const stopTraining = () => {
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-
-.console-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 2px dashed var(--border-light);
-  padding-bottom: 12px;
-}
-
-.console-header h3 {
-  color: var(--primary);
-  letter-spacing: 1px;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: bold;
-  color: var(--text-muted);
-}
-
-.status-indicator.active {
-  color: var(--primary);
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.active .dot {
-  background: var(--primary);
-  box-shadow: 0 0 8px var(--primary);
-  animation: blink 1s infinite;
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
 }
 
   .config-panel {
@@ -422,14 +524,16 @@ const stopTraining = () => {
 
 .progress-bar-container {
   height: 12px;
-  background: var(--border-light);
+  background: rgba(0, 0, 0, 0.15);
   border-radius: 6px;
   overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--primary);
+  background: linear-gradient(90deg, rgba(255,255,255,0.7) 0%, #ffffff 100%);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
   transition: width 0.3s ease;
 }
 
@@ -459,20 +563,148 @@ const stopTraining = () => {
 
 .start-btn {
   flex: 2;
+  background: white;
+  color: var(--primary);
+  font-weight: bold;
+}
+.start-btn:hover:not(:disabled) {
+  background: #f0f0f0;
 }
 .pause-btn {
   flex: 2;
 }
 .stop-btn {
   flex: 1;
-  background: var(--base-surface);
-  color: var(--text-main);
-  border: 1px solid var(--border-light);
-  box-shadow: none;
+  background: var(--accent);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(233, 30, 99, 0.3);
 }
 .stop-btn:hover:not(:disabled) {
-  background: #ffeaef;
+  background: #d81b60;
+  color: white;
+}
+
+.miku-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.miku-modal {
+  background: var(--base-surface, #ffffff);
+  color: var(--text-main, #333);
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  text-align: center;
+  min-width: 320px;
+}
+
+.modal-body {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.modal-btn {
+  flex: 1;
+  padding: 12px 0;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 15px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.abort-btn-red {
+  background: var(--accent);
+  color: white;
+}
+.abort-btn-red:hover {
+  background: #d81b60;
+}
+
+.resume-btn-white {
+  background: white;
+  color: var(--primary);
+  border: 1px solid var(--border-light, #ccc);
+}
+.resume-btn-white:hover {
+  background: #f0f0f0;
+}
+
+.training-status-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+  animation: fadeIn 0.3s ease;
+}
+
+.training-title {
+  text-align: center;
   color: var(--accent);
-  border-color: var(--accent);
+  font-size: 20px;
+  letter-spacing: 2px;
+  margin: 0;
+}
+
+.task-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.task-info .label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dashed-divider {
+  width: 100%;
+  border-bottom: 1px dashed var(--border-light);
+  margin-top: 4px;
+}
+
+.completion-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-align: center;
+  padding: 4px 0;
+}
+
+.return-btn {
+  flex: 1;
+  background: white;
+  color: var(--primary);
+  font-weight: bold;
+}
+.return-btn:hover {
+  background: #f0f0f0;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

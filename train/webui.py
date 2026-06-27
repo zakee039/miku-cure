@@ -4,6 +4,8 @@ import json
 import asyncio
 import subprocess
 import datetime
+import collections
+import psutil
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,11 +21,45 @@ app.add_middleware(
 )
 
 training_process = None
+current_training_model = None
+recent_logs = collections.deque(maxlen=20)
+active_connections = set()
+
+async def broadcast_msg(msg: dict):
+    msg_str = json.dumps(msg)
+    for ws in list(active_connections):
+        try:
+            await ws.send_text(msg_str)
+        except:
+            pass
+
+async def log_reader_task(process, log_file_path):
+    global training_process, current_training_model
+    loop = asyncio.get_event_loop()
+    try:
+        with open(log_file_path, "a", encoding="utf-8") as log_file:
+            while True:
+                line = await loop.run_in_executor(None, process.stdout.readline)
+                if not line and process.poll() is not None:
+                    break
+                if line:
+                    line_str = line.strip()
+                    log_file.write(line)
+                    log_file.flush()
+                    recent_logs.append(line_str)
+                    await broadcast_msg({"type": "log", "line": line_str})
+    except Exception as e:
+        print(f"Log reader error: {e}")
+    finally:
+        await broadcast_msg({"type": "status", "status": "stopped"})
+        training_process = None
+        current_training_model = None
 
 @app.websocket("/ws/train")
 async def websocket_train(websocket: WebSocket):
-    global training_process
+    global training_process, current_training_model
     await websocket.accept()
+    active_connections.add(websocket)
     try:
         while True:
             data = await websocket.receive_text()
@@ -33,6 +69,20 @@ async def websocket_train(websocket: WebSocket):
                 datasets_dir = os.path.join(os.path.dirname(__file__), "datasets")
                 datasets = [f for f in os.listdir(datasets_dir) if f.endswith('.csv')] if os.path.exists(datasets_dir) else []
                 await websocket.send_text(json.dumps({"type": "datasets", "datasets": datasets}))
+                continue
+                
+            elif cmd.get("action") == "get_status":
+                status = "running" if training_process is not None else "stopped"
+                await websocket.send_text(json.dumps({
+                    "type": "status", 
+                    "status": status,
+                    "model": current_training_model
+                }))
+                if status == "running":
+                    await websocket.send_text(json.dumps({
+                        "type": "recent_logs",
+                        "logs": list(recent_logs)
+                    }))
                 continue
 
             elif cmd.get("action") == "start":
@@ -45,8 +95,6 @@ async def websocket_train(websocket: WebSocket):
                     script_name = "train_rnn.py"
                 elif model_type == "mobilenet":
                     script_name = "train_mobilenet.py"
-                elif model_type == "ALL":
-                    script_name = "train_all.py"
                 else:
                     script_name = "train_cnn.py"
                 
@@ -79,38 +127,50 @@ async def websocket_train(websocket: WebSocket):
                 if dynamic_lr:
                     command.append("--dynamic_lr")
                 
+                current_training_model = model_type
+                recent_logs.clear()
+                
+                creation_flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                 training_process = subprocess.Popen(
                     command,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    bufsize=1
+                    bufsize=1,
+                    creationflags=creation_flags
                 )
                 
-                await websocket.send_text(json.dumps({"type": "status", "status": "running"}))
-                
-                loop = asyncio.get_event_loop()
-                with open(log_file_path, "a", encoding="utf-8") as log_file:
-                    while True:
-                        line = await loop.run_in_executor(None, training_process.stdout.readline)
-                        if not line and training_process.poll() is not None:
-                            break
-                        if line:
-                            log_file.write(line)
-                            log_file.flush()
-                            await websocket.send_text(json.dumps({"type": "log", "line": line.strip()}))
-                
-                await websocket.send_text(json.dumps({"type": "status", "status": "stopped"}))
-                training_process = None
+                await broadcast_msg({"type": "status", "status": "running", "model": model_type})
+                asyncio.create_task(log_reader_task(training_process, log_file_path))
                 
             elif cmd.get("action") == "stop":
                 if training_process is not None:
                     training_process.terminate()
-                    training_process = None
-                await websocket.send_text(json.dumps({"type": "status", "status": "stopped"}))
+            
+            elif cmd.get("action") == "pause":
+                if training_process is not None:
+                    try:
+                        p = psutil.Process(training_process.pid)
+                        for child in p.children(recursive=True):
+                            child.suspend()
+                        p.suspend()
+                        await broadcast_msg({"type": "status", "status": "paused", "model": current_training_model})
+                    except Exception as e:
+                        print(f"Pause error: {e}")
+                        
+            elif cmd.get("action") == "resume":
+                if training_process is not None:
+                    try:
+                        p = psutil.Process(training_process.pid)
+                        p.resume()
+                        for child in p.children(recursive=True):
+                            child.resume()
+                        await broadcast_msg({"type": "status", "status": "running", "model": current_training_model})
+                    except Exception as e:
+                        print(f"Resume error: {e}")
                 
     except WebSocketDisconnect:
-        print("WebSocket disconnected")
+        active_connections.remove(websocket)
 
 dist_dir = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 if os.path.exists(dist_dir):

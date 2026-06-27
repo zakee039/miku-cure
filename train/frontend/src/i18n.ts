@@ -51,7 +51,19 @@ const dictionary: Record<Locale, Record<string, string>> = {
     learningRate: '学习率',
     dynamicLr: '动态学习率',
     trainAll: '全部一起训练',
-    auto: '自动'
+    auto: '自动',
+    paramAdjust: '参数调整',
+    initialLr: '初始学习率',
+    trainingInProgress: '正在训练中...',
+    currentTask: '当前任务',
+    remainingTasks: '还有任务',
+    resumeTraining: '▶ 继续训练',
+    reallyAbort: '真的要终止训练么？',
+    confirmAbort: '确定终止',
+    modalResume: '继续训练',
+    trainingCompleteTitle: '训练完毕',
+    trainingCompleteDesc: '训练完毕，模型已保存至models文件夹，日志已保存至logs文件夹',
+    returnHome: '返回主页'
   },
   en: {
     toTrain: 'to train',
@@ -93,7 +105,19 @@ const dictionary: Record<Locale, Record<string, string>> = {
     learningRate: 'LEARNING RATE',
     dynamicLr: 'Dynamic LR',
     trainAll: 'Train All Together',
-    auto: 'Auto'
+    auto: 'Auto',
+    paramAdjust: 'Parameters',
+    initialLr: 'INITIAL LR',
+    trainingInProgress: 'Training in Progress...',
+    currentTask: 'Current Task',
+    remainingTasks: 'Remaining Tasks',
+    resumeTraining: '▶ RESUME TRAINING',
+    reallyAbort: 'Really abort training?',
+    confirmAbort: 'Confirm Abort',
+    modalResume: 'Resume Training',
+    trainingCompleteTitle: 'Training Complete',
+    trainingCompleteDesc: 'Training completed, models saved to models folder, logs saved to logs folder',
+    returnHome: 'Return to Homepage'
   },
   ja: {
     toTrain: '訓練へ',
@@ -135,7 +159,19 @@ const dictionary: Record<Locale, Record<string, string>> = {
     learningRate: '学習率',
     dynamicLr: '動的学習率',
     trainAll: '全て一緒に訓練',
-    auto: '自動'
+    auto: '自動',
+    paramAdjust: 'パラメータ調整',
+    initialLr: '初期学習率',
+    trainingInProgress: '訓練中...',
+    currentTask: '現在のタスク',
+    remainingTasks: '残りのタスク',
+    resumeTraining: '▶ 訓練を再開',
+    reallyAbort: '本当に訓練を中止しますか？',
+    confirmAbort: '中止を確認',
+    modalResume: '訓練を再開',
+    trainingCompleteTitle: '訓練完了',
+    trainingCompleteDesc: '訓練完了、モデルはmodelsフォルダに、ログはlogsフォルダに保存されました',
+    returnHome: 'ホームに戻る'
   }
 }
 

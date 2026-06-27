@@ -71,9 +71,10 @@ def train_pytorch_model(model, train_loader, val_loader, epochs=10, lr=0.0001, m
     print(f"Training on device: {device}")
     
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2) if dynamic_lr else None
     
+    best_score = -float('inf')
     best_acc = 0.0
     for epoch in range(epochs):
         model.train()
@@ -120,12 +121,29 @@ def train_pytorch_model(model, train_loader, val_loader, epochs=10, lr=0.0001, m
         if scheduler is not None:
             scheduler.step(val_epoch_acc)
             
+        gap = max(0.0, epoch_acc - val_epoch_acc)
+        score = val_epoch_acc - 4.0 * gap
+        
+        gen_path = model_save_path.replace('.pth', '_gen.pth')
+        acc_path = model_save_path.replace('.pth', '_acc.pth')
+        
+        msg = []
+        if score > best_score:
+            best_score = score
+            os.makedirs(os.path.dirname(gen_path), exist_ok=True)
+            torch.save(model.state_dict(), gen_path)
+            msg.append(f"Gen-Score: {score*100:.2f}")
+            
         if val_epoch_acc > best_acc:
             best_acc = val_epoch_acc
-            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-            torch.save(model.state_dict(), model_save_path)
-            print(f"Saved new best model with Val Acc: {best_acc*100:.2f}%")
-    print(f"Training completed. Best Validation Accuracy: {best_acc*100:.2f}%")
+            os.makedirs(os.path.dirname(acc_path), exist_ok=True)
+            torch.save(model.state_dict(), acc_path)
+            msg.append(f"Val-Acc: {best_acc*100:.2f}%")
+            
+        if msg:
+            print(f"Saved new best model(s) -> {' | '.join(msg)}")
+            
+    print(f"Training completed. Best Gen-Score: {best_score*100:.2f} | Best Val-Acc: {best_acc*100:.2f}%")
     return model
 
 def evaluate_pytorch_model(model, test_loader, model_path):
@@ -152,7 +170,7 @@ def evaluate_pytorch_model(model, test_loader, model_path):
 class GrayscaleMobileNetV2(nn.Module):
     def __init__(self, num_classes=8):
         super(GrayscaleMobileNetV2, self).__init__()
-        self.mobilenet = models.mobilenet_v2(pretrained=True)
+        self.mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
         
         original_conv = self.mobilenet.features[0][0]
         new_conv = nn.Conv2d(1, original_conv.out_channels, 
@@ -164,6 +182,7 @@ class GrayscaleMobileNetV2(nn.Module):
             new_conv.weight.copy_(original_conv.weight.sum(dim=1, keepdim=True))
         
         self.mobilenet.features[0][0] = new_conv
+        self.mobilenet.classifier[0] = nn.Dropout(p=0.5)
         self.mobilenet.classifier[1] = nn.Linear(self.mobilenet.last_channel, num_classes)
 
     def forward(self, x):
@@ -214,5 +233,5 @@ if __name__ == '__main__':
     os.makedirs(args.save_dir, exist_ok=True)
     mobilenet_save_path = os.path.join(args.save_dir, "best_mobilenet_v2.pth")
     train_pytorch_model(mobilenet_model, train_loader, val_loader, epochs=args.epochs, lr=args.lr, model_save_path=mobilenet_save_path, dynamic_lr=args.dynamic_lr)
-    print(f"[*] Training complete. Best model saved to {mobilenet_save_path}")
-    evaluate_pytorch_model(mobilenet_model, test_loader, mobilenet_save_path)
+    print(f"[*] Training complete. Models saved with suffixes _gen.pth and _acc.pth")
+    evaluate_pytorch_model(mobilenet_model, test_loader, mobilenet_save_path.replace('.pth', '_gen.pth'))
