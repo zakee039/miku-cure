@@ -123,7 +123,8 @@ ipcMain.on('open-settings', () => {
     icon: path.join(__dirname, 'assets', 'miku.ico'),
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      webSecurity: false
     }
   });
 

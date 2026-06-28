@@ -20,8 +20,10 @@ except ImportError:
 
 try:
     from models_def import EmotionCNN, GrayscaleMobileNetV2, RNNAttentionNetwork
+    from lora import inject_lora
 except ImportError:
     EmotionCNN = GrayscaleMobileNetV2 = RNNAttentionNetwork = None
+    inject_lora = None
 
 class EmotionDetector:
     EMOTIONS = ['neutral', 'happy', 'surprise', 'sadness', 'anger', 'disgust', 'fear', 'contempt']
@@ -105,6 +107,12 @@ class EmotionDetector:
                         self.model = EmotionCNN().to(self.device)
 
                     self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+                    # Apply LoRA if exists
+                    lora_path = os.path.join(os.path.dirname(__file__), "..", "user", "lora", "lora_weights.pth")
+                    if inject_lora and os.path.exists(lora_path):
+                        self.model = inject_lora(self.model).to(self.device)
+                        self.model.load_state_dict(torch.load(lora_path, map_location=self.device), strict=False)
+                        print(f"Detector: Loaded LoRA weights from {lora_path}")
                     self.model.eval()
                     print(f"Detector: Loaded PyTorch model weights from {model_path} successfully on {self.device}")
                 except Exception as e:
@@ -142,6 +150,12 @@ class EmotionDetector:
                         self.model = EmotionCNN().to(self.device)
 
                     self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+                    # Apply LoRA if exists
+                    lora_path = os.path.join(os.path.dirname(__file__), "..", "user", "lora", "lora_weights.pth")
+                    if inject_lora and os.path.exists(lora_path):
+                        self.model = inject_lora(self.model).to(self.device)
+                        self.model.load_state_dict(torch.load(lora_path, map_location=self.device), strict=False)
+                        print(f"Detector: Loaded LoRA weights from {lora_path}")
                     self.model.eval()
                     print(f"Detector: Loaded PyTorch weights successfully on {self.device}")
                 except Exception as e:
@@ -163,8 +177,38 @@ class EmotionDetector:
             face_coords: tuple (x, y, w, h) of detected face in raw coordinates, or None
         """
         if frame is None:
-            return 'neutral', 1.0, None
+            return 'no_face', 0.0, None
+        face_img, face_coords = self.extract_face(frame)
+        
+        if face_img is None:
+            return 'no_face', 0.0, None
+        
+        # 2. Run model inference if loaded
+        if self.model and torch:
+            try:
+                tensor_face = self.preprocess_to_tensor(face_img)
+                
+                with torch.no_grad():
+                    outputs = self.model(tensor_face)
+                    probs = F.softmax(outputs, dim=1)
+                    confidence, class_idx = torch.max(probs, dim=1)
+                    detected_emotion = self.EMOTIONS[class_idx.item()]
+                    conf_val = confidence.item()
+            except Exception as e:
+                print(f"Detector: Model forward pass failed: {e}")
+                detected_emotion, conf_val = self._fallback_inference(face_img)
+        else:
+            # Demo Fallback
+            detected_emotion, conf_val = self._fallback_inference(face_img)
 
+        if detected_emotion == 'sadness' and conf_val < 0.70:
+            detected_emotion = 'neutral'
+
+        return detected_emotion, conf_val, face_coords
+
+    def extract_face(self, frame):
+        if frame is None:
+            return None, None
         h, w, _ = frame.shape
         face_img = None
         face_coords = None
@@ -206,39 +250,17 @@ class EmotionDetector:
                     face_coords = (int(fx), int(fy), int(fw), int(fh))
                     face_img = frame[int(fy):int(fy+fh), int(fx):int(fx+fw)]
 
-            # If Haar Cascade is missing or failed to detect, crop center of frame
+            # If no face is detected by any method, return None
             if face_img is None or face_img.size == 0:
-                cx, cy = w // 2, h // 2
-                sz = min(w, h, 300) // 2
-                face_coords = (cx - sz, cy - sz, sz * 2, sz * 2)
-                face_img = frame[cy-sz:cy+sz, cx-sz:cx+sz]
+                return None, None
+        return face_img, face_coords
 
-        # 2. Run model inference if loaded
-        if self.model and torch:
-            try:
-                # Preprocess face to grayscale 48x48
-                gray_face = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
-                resized_face = cv2.resize(gray_face, (48, 48))
-                
-                # Convert to tensor and standardize (normalization)
-                tensor_face = torch.tensor(resized_face, dtype=torch.float32).unsqueeze(0).unsqueeze(0) # Shape: (1, 1, 48, 48)
-                tensor_face = (tensor_face - 127.5) / 127.5 # Map to [-1, 1] range
-                tensor_face = tensor_face.to(self.device)
-                
-                with torch.no_grad():
-                    outputs = self.model(tensor_face)
-                    probs = F.softmax(outputs, dim=1)
-                    confidence, class_idx = torch.max(probs, dim=1)
-                    detected_emotion = self.EMOTIONS[class_idx.item()]
-                    conf_val = confidence.item()
-            except Exception as e:
-                print(f"Detector: Model forward pass failed: {e}")
-                detected_emotion, conf_val = self._fallback_inference(face_img)
-        else:
-            # Demo Fallback
-            detected_emotion, conf_val = self._fallback_inference(face_img)
-
-        return detected_emotion, conf_val, face_coords
+    def preprocess_to_tensor(self, face_img):
+        gray_face = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
+        resized_face = cv2.resize(gray_face, (48, 48))
+        tensor_face = torch.tensor(resized_face, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        tensor_face = (tensor_face - 127.5) / 127.5
+        return tensor_face.to(self.device)
 
     def _fallback_inference(self, face_img):
         """

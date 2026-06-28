@@ -179,6 +179,107 @@ def handle_frontend_message(data):
         threading.Thread(target=_download, daemon=True).start()
         print("Backend: Started downloading DeepFace weights...")
 
+    elif msg_type == 'delete_lora_data':
+        lora_dir = os.path.join(os.path.dirname(__file__), '..', 'user', 'lora')
+        weights_file = os.path.join(lora_dir, 'lora_weights.pth')
+        name_file = os.path.join(lora_dir, 'master_name.txt')
+        try:
+            if os.path.exists(weights_file): os.remove(weights_file)
+            if os.path.exists(name_file): os.remove(name_file)
+            # Reload model without LoRA
+            detector.switch_model(detector.model_type)
+            print("Backend: LoRA data deleted and model reloaded.")
+        except Exception as e:
+            print(f"Backend: Error deleting LoRA data: {e}")
+
+    elif msg_type == 'start_lora_training':
+        master_name = data.get('master_name', '用户')
+        images_data = data.get('data', [])
+        
+        # Save master name
+        lora_dir = os.path.join(os.path.dirname(__file__), '..', 'user', 'lora')
+        os.makedirs(lora_dir, exist_ok=True)
+        with open(os.path.join(lora_dir, 'master_name.txt'), 'w', encoding='utf-8') as f:
+            f.write(master_name)
+            
+        def _train_lora():
+            import base64
+            import numpy as np
+            import cv2
+            import torch
+            import torch.nn as nn
+            import torch.optim as optim
+            from lora import inject_lora
+            
+            try:
+                print(f"Backend: Starting LoRA training for master {master_name} with {len(images_data)} images...")
+                
+                # Decode images and preprocess
+                tensors = []
+                targets = []
+                
+                for item in images_data:
+                    label = item['label']
+                    b64_img = item['image'].split(',')[1] if ',' in item['image'] else item['image']
+                    img_bytes = base64.b64decode(b64_img)
+                    np_arr = np.frombuffer(img_bytes, np.uint8)
+                    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                    
+                    face_img, _ = detector.extract_face(frame)
+                    if face_img is not None and face_img.size > 0:
+                        t = detector.preprocess_to_tensor(face_img)
+                        tensors.append(t)
+                        
+                        class_idx = detector.EMOTIONS.index(label)
+                        targets.append(class_idx)
+                
+                if not tensors:
+                    raise ValueError("No valid faces found in the training images.")
+                    
+                X = torch.cat(tensors, dim=0)
+                Y = torch.tensor(targets, dtype=torch.long).to(detector.device)
+                
+                # Inject LoRA into current model
+                detector.model = inject_lora(detector.model).to(detector.device)
+                
+                # Freeze all parameters except LoRA
+                for name, param in detector.model.named_parameters():
+                    if 'lora_' not in name:
+                        param.requires_grad = False
+                    else:
+                        param.requires_grad = True
+                        
+                detector.model.train()
+                optimizer = optim.Adam(filter(lambda p: p.requires_grad, detector.model.parameters()), lr=0.005)
+                criterion = nn.CrossEntropyLoss()
+                
+                epochs = 30
+                for epoch in range(epochs):
+                    optimizer.zero_grad()
+                    outputs = detector.model(X)
+                    loss = criterion(outputs, Y)
+                    loss.backward()
+                    optimizer.step()
+                    print(f"LoRA Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+                    progress = int(((epoch + 1) / epochs) * 100)
+                    ws_server.send_to_all({"type": "training_progress", "progress": progress})
+                
+                detector.model.eval()
+                
+                # Save only LoRA weights
+                lora_state = {k: v for k, v in detector.model.state_dict().items() if 'lora_' in k}
+                torch.save(lora_state, os.path.join(lora_dir, 'lora_weights.pth'))
+                print("Backend: LoRA weights saved successfully.")
+                
+                ws_server.send_to_all({"type": "training_complete", "success": True})
+            except Exception as e:
+                print(f"Backend: LoRA training failed: {e}")
+                ws_server.send_to_all({"type": "training_complete", "success": False, "error": str(e)})
+            finally:
+                camera.start()
+                
+        threading.Thread(target=_train_lora, daemon=True).start()
+
 def main_loop():
     global is_running, focus_active
     global emotion_window, care_popup_triggered

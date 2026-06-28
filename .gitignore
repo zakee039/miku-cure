@@ -26,11 +26,7 @@ htmlcov/
 
 # ── 训练相关（模型权重，体积较大）──────────────────
 train/models/
-backend/models/
-train/datasets/
-*.h5
-*.pth
-*.pkl
+train/datasets
 
 # ── Node.js / Electron ──────────────────────────────
 node_modules/
@@ -49,3 +45,6 @@ emotion_log.md
 *.swo
 .DS_Store
 Thumbs.db
+
+# 本地用户文件
+user/

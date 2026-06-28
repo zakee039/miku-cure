@@ -169,7 +169,9 @@ class MikuLLM:
         self.client   = None
         self.chat_history = []
         self.last_chat_time = time.time()
-        self.memory_dir = os.path.join(os.path.dirname(__file__), "..", "miku", "memorize")
+        self.lora_dir = os.path.join(os.path.dirname(__file__), "..", "user", "lora")
+        self.master_name_file = os.path.join(self.lora_dir, "master_name.txt")
+        self.memory_dir = os.path.join(os.path.dirname(__file__), "..", "user", "memorize")
         self.active_chat_file = os.path.join(self.memory_dir, "active_chat.json")
         os.makedirs(self.memory_dir, exist_ok=True)
         self._load_active_chat()
@@ -349,12 +351,21 @@ class MikuLLM:
         memory = self._get_latest_memory()
         memory_prompt = f"\n这是你上一轮的记忆摘要：\n{memory}\n请结合这些记忆与用户进行今天的对话。" if memory else ""
         
+        master_name = "用户"
+        if os.path.exists(self.master_name_file):
+            try:
+                with open(self.master_name_file, 'r', encoding='utf-8') as f:
+                    name = f.read().strip()
+                    if name: master_name = name
+            except Exception:
+                pass
+                
         if lang == 'ja':
-            sys_msg = f"あなたは初音ミクです。活発で可愛く、優しいトーンで簡潔に返答してください。{memory_prompt}\n【重要】歌を歌う場合は文頭に [PLAY_MUSIC]、画像を見せる場合は文頭に [SHOW_IMAGE] を置いてください。動作を描写する（「画像を出す」「歌う」など）のは構いませんが、画像や曲の「具体的な内容（ネギを持っている、曲名など）」は描写しないでください（ランダム再生のため矛盾が生じます）。「これ可愛いでしょう？」など抽象的に言及してください。"
+            sys_msg = f"あなたは初音ミクです。活発で可愛く、優しいトーンで簡潔に返答してください。ユーザーの名前は「{master_name}」です。{memory_prompt}\n【重要】歌を歌う場合は文頭に [PLAY_MUSIC]、画像を見せる場合は文頭に [SHOW_IMAGE] を置いてください。動作を描写する（「画像を出す」「歌う」など）のは構いませんが、画像や曲の「具体的な内容（ネギを持っている、曲名など）」は描写しないでください（ランダム再生のため矛盾が生じます）。「これ可愛いでしょう？」など抽象的に言及してください。"
         elif lang == 'en':
-            sys_msg = f"You are Hatsune Miku, a cute and cheerful virtual companion. Keep your answers brief and sweet. {memory_prompt}\n[CRITICAL]: To play a song, start your reply with [PLAY_MUSIC]. To show a picture, start with [SHOW_IMAGE]. You may roleplay the action of taking out a picture or singing, but DO NOT describe the specific contents of the picture or the song (e.g., holding a leek, specific lyrics), as they are randomly selected. Use broad descriptions like 'Isn\'t this cute?'."
+            sys_msg = f"You are Hatsune Miku, a cute and cheerful virtual companion. The user's name is {master_name}. Keep your answers brief and sweet. {memory_prompt}\n[CRITICAL]: To play a song, start your reply with [PLAY_MUSIC]. To show a picture, start with [SHOW_IMAGE]. You may roleplay the action of taking out a picture or singing, but DO NOT describe the specific contents of the picture or the song (e.g., holding a leek, specific lyrics), as they are randomly selected. Use broad descriptions like 'Isn\'t this cute?'."
         else:
-            sys_msg = f"你是初音未来（Miku），一个在桌面上陪伴用户学习和工作的可爱虚拟看板娘。请用活泼、可爱、温柔的语气简短回复。{memory_prompt}\n【最高指令】：如果你想放歌，必须将 [PLAY_MUSIC] 放在回复的最开头；如果你想发表情包，必须将 [SHOW_IMAGE] 放在回复的最开头。你可以用文字描述‘拿出表情包’或‘准备唱歌’的动作，但【绝对不要】描述表情包或歌曲的具体内容（比如不要说‘抱着葱’、不要说具体歌名或歌词），因为内容是系统随机播放的，会产生矛盾。请使用宽泛抽象的描述，比如‘看这个，本小姐可爱吧~’或‘听听这首歌放松下~’。"
+            sys_msg = f"你是初音未来（Miku），一个在桌面上陪伴主人学习和工作的可爱虚拟看板娘。主人的名字叫「{master_name}」，请在合适的时机称呼主人。请用活泼、可爱、温柔的语气简短回复。{memory_prompt}\n【最高指令】：如果你想放歌，必须将 [PLAY_MUSIC] 放在回复的最开头；如果你想发表情包，必须将 [SHOW_IMAGE] 放在回复的最开头。你可以用文字描述‘拿出表情包’或‘准备唱歌’的动作，但【绝对不要】描述表情包或歌曲的具体内容（比如不要说‘抱着葱’、不要说具体歌名或歌词），因为内容是系统随机播放的，会产生矛盾。请使用宽泛抽象的描述，比如‘看这个，本小姐可爱吧~’或‘听听这首歌放松下~’。"
 
         messages = [{"role": "system", "content": sys_msg}]
         

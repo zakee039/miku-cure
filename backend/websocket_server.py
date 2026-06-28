@@ -26,7 +26,7 @@ class MikuWebSocketServer:
         asyncio.set_event_loop(self.loop)
         
         async def main():
-            async with websockets.serve(self._handler, self.host, self.port):
+            async with websockets.serve(self._handler, self.host, self.port, max_size=50_000_000):
                 await asyncio.Future()  # run forever
                 
         self.loop.run_until_complete(main())

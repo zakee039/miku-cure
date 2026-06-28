@@ -1,16 +1,30 @@
 const { ipcRenderer } = require('electron');
 const { t, getCurrentLang, applyI18n } = require('./i18n');
+const fs = require('fs');
+const path = require('path');
 
 // ── LocalStorage key for API list ─────────────────────────────────────────────
-const LS_APIS = 'miku-apis';         // [{id,name,baseUrl,apiKey,models:[]}]
+const userDir = path.join(__dirname, '..', 'user');
+const keysDir = path.join(userDir, 'keys');
+const apiJsonPath = path.join(keysDir, 'api.json');
+
 const LS_SEL_API   = 'miku-sel-api';    // selected api id
 const LS_SEL_MODEL = 'miku-sel-model';  // selected model string
 
 function loadApis() {
-  try { return JSON.parse(localStorage.getItem(LS_APIS)) || []; } catch { return []; }
+  try {
+    if (!fs.existsSync(keysDir)) fs.mkdirSync(keysDir, { recursive: true });
+    if (fs.existsSync(apiJsonPath)) {
+      return JSON.parse(fs.readFileSync(apiJsonPath, 'utf8')) || [];
+    }
+  } catch (e) { console.error('Failed to load api.json', e); }
+  return [];
 }
 function saveApis(list) {
-  localStorage.setItem(LS_APIS, JSON.stringify(list));
+  try {
+    if (!fs.existsSync(keysDir)) fs.mkdirSync(keysDir, { recursive: true });
+    fs.writeFileSync(apiJsonPath, JSON.stringify(list, null, 2), 'utf8');
+  } catch (e) { console.error('Failed to save api.json', e); }
 }
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -165,6 +179,10 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('miku-language', lang);
     applyAllTranslations();
     renderApiList();          // re-render API list with new i18n
+    if (ceremonySuccessSection.style.display === 'block') {
+      const masterName = localStorage.getItem('miku-master-name') || '用户';
+      ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
+    }
     ipcRenderer.send('lang-changed', lang);
   });
 
@@ -297,12 +315,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     apiFormModels.value = t('api.fetching_models') || 'Fetching...';
     try {
-      const res = await fetch(`${url}/models`, {
-        headers: {
-          'Authorization': `Bearer ${key}`
-        }
-      });
-      if (res.ok) {
+      let safeUrl = url.replace(/\/+$/, '');
+      let res = await fetch(`${safeUrl}/v1/models`, { headers: { 'Authorization': `Bearer ${key}` } }).catch(() => null);
+      if (!res || !res.ok) {
+        res = await fetch(`${safeUrl}/models`, { headers: { 'Authorization': `Bearer ${key}` } }).catch(() => null);
+      }
+      if (res && res.ok) {
         const data = await res.json();
         if (data && data.data && Array.isArray(data.data)) {
           const models = data.data.map(m => m.id);
@@ -322,7 +340,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  apiFormUrl.addEventListener('blur', autoFetchModels);
+  apiFormUrl.addEventListener('blur', () => {
+    if (!apiFormName.value.trim() && apiFormUrl.value.trim()) {
+      try {
+        let urlStr = apiFormUrl.value.trim();
+        if (!urlStr.startsWith('http')) urlStr = 'https://' + urlStr;
+        const urlObj = new URL(urlStr);
+        const parts = urlObj.hostname.split('.');
+        let name = parts[0];
+        if (parts.length >= 2) {
+          name = parts[parts.length - 2];
+        }
+        if (name) {
+          // e.g., deepseek -> Deepseek
+          apiFormName.value = name.charAt(0).toUpperCase() + name.slice(1);
+        }
+      } catch (e) {}
+    }
+    autoFetchModels();
+  });
   apiFormKey.addEventListener('blur', autoFetchModels);
 
   function closeForm() {
@@ -367,4 +403,186 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Initial render ────────────────────────────────────────────────────────
   renderApiList();
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  Ceremony (LoRA Initialization)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const btnStartCeremony = document.getElementById('btn-start-ceremony');
+  const btnReinitCeremony = document.getElementById('btn-reinit-ceremony');
+  const btnDeleteCeremony = document.getElementById('btn-delete-ceremony');
+  const ceremonyModal = document.getElementById('ceremony-modal');
+  const ceremonyModalText = document.getElementById('ceremony-modal-text');
+  const ceremonyModalProgress = document.getElementById('ceremony-modal-progress');
+  const ceremonyVideo = document.getElementById('ceremony-video');
+  const ceremonyCanvas = document.getElementById('ceremony-canvas');
+  const ceremonyNameInput = document.getElementById('ceremony-name-input');
+  const ceremonyModalContinue = document.getElementById('ceremony-modal-continue');
+
+  const ceremonyIdleSection = document.getElementById('ceremony-idle-section');
+  const ceremonySuccessSection = document.getElementById('ceremony-success-section');
+  const ceremonySuccessMsg = document.getElementById('ceremony-success-msg');
+
+  let stream = null;
+  let capturedData = [];
+
+  async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function waitForContinue(btnText = "继续") {
+    return new Promise(resolve => {
+      ceremonyModalContinue.textContent = btnText;
+      ceremonyModalContinue.style.display = 'block';
+      const onClick = () => {
+        ceremonyModalContinue.style.display = 'none';
+        ceremonyModalContinue.removeEventListener('click', onClick);
+        resolve();
+      };
+      ceremonyModalContinue.addEventListener('click', onClick);
+    });
+  }
+
+  async function captureStage(label, promptTextKey, numImages = 25, delayMs = 200) {
+    ceremonyModalText.textContent = t(promptTextKey);
+    for (let i = 0; i < numImages; i++) {
+      await sleep(delayMs);
+      ceremonyCanvas.width = ceremonyVideo.videoWidth;
+      ceremonyCanvas.height = ceremonyVideo.videoHeight;
+      const ctx = ceremonyCanvas.getContext('2d');
+      ctx.drawImage(ceremonyVideo, 0, 0, ceremonyCanvas.width, ceremonyCanvas.height);
+      const dataUrl = ceremonyCanvas.toDataURL('image/jpeg', 0.8);
+      capturedData.push({ label, image: dataUrl });
+      
+      const progress = (capturedData.length / 75) * 100;
+      ceremonyModalProgress.style.width = progress + '%';
+    }
+  }
+
+  async function startCeremony() {
+    const masterName = ceremonyNameInput.value.trim();
+    if (!masterName) {
+      alert(t('ceremony.error.no_name'));
+      return;
+    }
+    ceremonyModal.style.display = 'flex';
+    ceremonyModalProgress.style.width = '0%';
+    capturedData = [];
+
+    let ws = new WebSocket('ws://127.0.0.1:8765');
+    
+    // Wait for WS to connect
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("WebSocket timeout")), 2000);
+      ws.onopen = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("WebSocket error"));
+      };
+    });
+
+    try {
+      ceremonyModalText.textContent = t('ceremony.starting');
+      ws.send(JSON.stringify({ type: 'toggle_camera', state: false }));
+      await sleep(1500);
+
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      ceremonyVideo.srcObject = stream;
+      await new Promise(r => ceremonyVideo.onloadedmetadata = r);
+      ceremonyVideo.play();
+
+      await sleep(1000);
+
+      // Stage 1: Neutral
+      ceremonyModalText.textContent = t('ceremony.stage1.prep');
+      await waitForContinue(t('ceremony.btn.ready'));
+      await captureStage('neutral', 'ceremony.stage1.cap', 25, 200);
+      
+      // Stage 2: Happy
+      ceremonyModalText.textContent = t('ceremony.stage2.prep');
+      await waitForContinue(t('ceremony.btn.continue'));
+      await captureStage('happy', 'ceremony.stage2.cap', 25, 200);
+      
+      // Stage 3: Sadness
+      ceremonyModalText.textContent = t('ceremony.stage3.prep');
+      await waitForContinue(t('ceremony.btn.continue'));
+      await captureStage('sadness', 'ceremony.stage3.cap', 25, 200);
+
+      // Stop camera
+      stream.getTracks().forEach(t => t.stop());
+      ceremonyVideo.srcObject = null;
+
+      ceremonyModalText.textContent = t('ceremony.training');
+      ceremonyModalProgress.style.width = '0%';
+
+      // Send to backend via existing WebSocket
+      ws.send(JSON.stringify({
+        type: 'start_lora_training',
+        master_name: masterName,
+        data: capturedData
+      }));
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'training_progress') {
+          ceremonyModalProgress.style.width = data.progress + '%';
+        } else if (data.type === 'training_complete') {
+          if (data.success) {
+            ceremonyModal.style.display = 'none';
+            ceremonyIdleSection.style.display = 'none';
+            ceremonySuccessSection.style.display = 'block';
+            ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
+            localStorage.setItem('miku-master-name', masterName);
+            localStorage.setItem('miku-ceremony-done', 'true');
+          } else {
+            alert("认主失败：" + data.error);
+            ceremonyModal.style.display = 'none';
+          }
+          setTimeout(() => ws.close(), 500);
+        }
+      };
+
+      ws.onerror = (e) => {
+        alert("无法连接到后端，认主失败。");
+        ceremonyModal.style.display = 'none';
+      };
+
+    } catch (e) {
+      console.error(e);
+      alert("无法访问摄像头，认主失败：" + e.message);
+      ceremonyModal.style.display = 'none';
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (ws && ws.readyState === WebSocket.OPEN) {
+          setTimeout(() => ws.close(), 500);
+      }
+    }
+  }
+
+  btnStartCeremony.addEventListener('click', startCeremony);
+  btnReinitCeremony.addEventListener('click', startCeremony);
+  btnDeleteCeremony.addEventListener('click', () => {
+    if (confirm(t('ceremony.confirm_delete'))) {
+      let ws = new WebSocket('ws://127.0.0.1:8765');
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'delete_lora_data' }));
+        setTimeout(() => ws.close(), 1000);
+      };
+      localStorage.removeItem('miku-ceremony-done');
+      localStorage.removeItem('miku-master-name');
+      ceremonyNameInput.value = '';
+      ceremonyIdleSection.style.display = 'flex';
+      ceremonySuccessSection.style.display = 'none';
+    }
+  });
+
+  // Check state on load
+  if (localStorage.getItem('miku-ceremony-done') === 'true') {
+    const masterName = localStorage.getItem('miku-master-name') || '用户';
+    ceremonyNameInput.value = masterName;
+    ceremonyIdleSection.style.display = 'none';
+    ceremonySuccessSection.style.display = 'block';
+    ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
+  }
+
 });

@@ -80,7 +80,6 @@ def train_pytorch_model(model, train_loader, val_loader, epochs=10, lr=0.0001, m
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2) if dynamic_lr else None
     
-    best_score = -float('inf')
     best_acc = 0.0
     for epoch in range(epochs):
         model.train()
@@ -127,29 +126,13 @@ def train_pytorch_model(model, train_loader, val_loader, epochs=10, lr=0.0001, m
         if scheduler is not None:
             scheduler.step(val_epoch_acc)
             
-        gap = max(0.0, epoch_acc - val_epoch_acc)
-        score = val_epoch_acc - 4.0 * gap
-        
-        gen_path = model_save_path.replace('.pth', '_gen.pth')
-        acc_path = model_save_path.replace('.pth', '_acc.pth')
-        
-        msg = []
-        if score > best_score:
-            best_score = score
-            os.makedirs(os.path.dirname(gen_path), exist_ok=True)
-            torch.save(model.state_dict(), gen_path)
-            msg.append(f"Gen-Score: {score*100:.2f}")
-            
         if val_epoch_acc > best_acc:
             best_acc = val_epoch_acc
-            os.makedirs(os.path.dirname(acc_path), exist_ok=True)
-            torch.save(model.state_dict(), acc_path)
-            msg.append(f"Val-Acc: {best_acc*100:.2f}%")
+            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+            torch.save(model.state_dict(), model_save_path)
+            print(f"Saved new best model with Val Acc: {best_acc*100:.2f}%")
             
-        if msg:
-            print(f"Saved new best model(s) -> {' | '.join(msg)}")
-            
-    print(f"Training completed. Best Gen-Score: {best_score*100:.2f} | Best Val-Acc: {best_acc*100:.2f}%")
+    print(f"Training completed. Best Validation Accuracy: {best_acc*100:.2f}%")
     return model
 
 def evaluate_pytorch_model(model, test_loader, model_path):
@@ -218,5 +201,5 @@ if __name__ == '__main__':
     cnn_save_path = os.path.join(args.save_dir, "best_cnn.pth")
     print(f"[*] Started training CNN for {args.epochs} epochs with initial LR {args.lr} (Dynamic: {args.dynamic_lr})...")
     train_pytorch_model(custom_model, train_loader, val_loader, epochs=args.epochs, lr=args.lr, model_save_path=cnn_save_path, dynamic_lr=args.dynamic_lr)
-    print(f"[*] Training complete. Models saved with suffixes _gen.pth and _acc.pth")
-    evaluate_pytorch_model(custom_model, test_loader, cnn_save_path.replace('.pth', '_gen.pth'))
+    print(f"[*] Training complete. Best model saved to {cnn_save_path}")
+    evaluate_pytorch_model(custom_model, test_loader, cnn_save_path)

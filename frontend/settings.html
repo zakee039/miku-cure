@@ -377,6 +377,7 @@
     <div class="tab active" data-page="model"   data-i18n="nav.model">模型</div>
     <div class="tab"        data-page="general" data-i18n="nav.general">通用</div>
     <div class="tab"        data-page="api"     data-i18n="api.title">API 设置</div>
+    <div class="tab"        data-page="ceremony" data-i18n="nav.ceremony">签订契约</div>
     <div class="tab"        data-page="about"   data-i18n="nav.about">关于</div>
   </div>
 
@@ -485,6 +486,30 @@
 
     </div>
 
+    <!-- Page: Ceremony (签订契约) -->
+    <div class="page" id="page-ceremony">
+      <div class="section">
+        <div class="tip" style="margin-bottom: 10px;" data-i18n="ceremony.desc">
+          ✨ 认主仪式：录入你的个人表情特征，生成专属你的微调模型 (LoRA)。
+        </div>
+        <label class="field-label" data-i18n="ceremony.name_label">你的名字</label>
+        <input class="miku-input" id="ceremony-name-input" type="text" data-i18n-placeholder="ceremony.name_placeholder" placeholder="请输入你的名字（例如：主人）" value="">
+      </div>
+      <div class="section" id="ceremony-idle-section" style="margin-top: 10px;">
+        <button class="train-btn" id="btn-start-ceremony" style="width:100%; padding:12px; font-size:15px; border-color:#39c5bb; color:#fff; background:#39c5bb;" data-i18n="ceremony.start_btn">🪄 开始签订契约</button>
+      </div>
+      <div class="section" id="ceremony-success-section" style="display:none; text-align:center; margin-top: 20px;">
+        <div style="font-size: 40px; margin-bottom:10px;">🎉</div>
+        <div style="font-size: 16px; font-weight: 600; color: #39c5bb; margin-bottom: 20px;" id="ceremony-success-msg">
+          已成功认主，主人，加油！
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="train-btn" id="btn-reinit-ceremony" style="flex:1;" data-i18n="ceremony.reinit_btn">重新认主</button>
+            <button class="train-btn" id="btn-delete-ceremony" style="flex:1; border-color:#ff5f56; color:#ff5f56; background:#fff5f5;" data-i18n="ceremony.delete_btn">删除数据</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Page: About -->
     <div class="page" id="page-about">
       <div class="about-logo">🎵</div>
@@ -515,6 +540,20 @@
       </a>
     </div>
 
+  </div>
+
+  <!-- Ceremony Modal Overlay -->
+  <div id="ceremony-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.85); backdrop-filter:blur(8px); flex-direction:column; align-items:center; justify-content:center; z-index:9999;">
+    <div style="font-size:60px; margin-bottom:10px;">🎵</div>
+    <div id="ceremony-modal-text" style="font-size:20px; font-weight:600; color:#39c5bb; margin-bottom:20px; text-align:center; padding: 0 20px;">
+      正在准备仪式...
+    </div>
+    <div style="width: 60%; background: #e4e8ee; height: 10px; border-radius: 5px; overflow: hidden;">
+      <div id="ceremony-modal-progress" style="width: 0%; background: #ff5f56; height: 100%; transition: width 0.3s;"></div>
+    </div>
+    <video id="ceremony-video" style="display:none;" autoplay playsinline></video>
+    <canvas id="ceremony-canvas" style="display:none;"></canvas>
+    <button class="train-btn" id="ceremony-modal-continue" style="display:none; margin-top:20px; font-size:14px; padding:10px 24px;">继续</button>
   </div>
 
   <script src="settings_renderer.js"></script>

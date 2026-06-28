@@ -170,7 +170,10 @@ if (emotionBadge) {
       const labelEl = document.getElementById('emotion-label');
       const confEl  = document.getElementById('emotion-conf');
       if (emojiEl) emojiEl.textContent = '🔌';
-      if (labelEl) labelEl.textContent = t('emotion.disconnected');
+      if (labelEl) {
+        labelEl.textContent = t('emotion.disconnected');
+        labelEl.removeAttribute('data-i18n');
+      }
       if (confEl)  confEl.textContent  = '--%';
     } else {
       const labelEl = document.getElementById('emotion-label');
@@ -596,7 +599,8 @@ function connectBackend() {
           'anger':   { emoji: '😠', key: 'emotion.anger' },
           'fear':    { emoji: '😨', key: 'emotion.fear' },
           'disgust': { emoji: '🤢', key: 'emotion.disgust' },
-          'surprise':{ emoji: '😲', key: 'emotion.surprise' }
+          'surprise':{ emoji: '😲', key: 'emotion.surprise' },
+          'no_face': { emoji: '👽', key: 'emotion.no_face' }
         };
         const info    = emotionMap[data.emotion] || { emoji: '😐', key: 'emotion.neutral' };
 
@@ -606,8 +610,13 @@ function connectBackend() {
         const confEl  = document.getElementById('emotion-conf');
         if (!isCameraConnected) return; // Do not update UI if disconnected manually
         if (emojiEl) emojiEl.textContent = info.emoji;
-        if (labelEl) labelEl.textContent = t(info.key);
-        if (confEl)  confEl.textContent  = percent + '%';
+        if (labelEl) {
+          labelEl.textContent = t(info.key);
+          labelEl.setAttribute('data-i18n', info.key);
+        }
+        if (confEl) {
+          confEl.textContent = data.emotion === 'no_face' ? '--%' : percent + '%';
+        }
       }
       
       // LLM bubble trigger
