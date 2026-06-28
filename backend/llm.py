@@ -185,6 +185,7 @@ class MikuLLM:
                 import openai
                 self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
                 print(f"LLM: Client initialized — {self.base_url} / {self.model}")
+                self._process_unsummarized_archives_async()
             except ImportError:
                 print("LLM: openai package not installed. Using local fallback bank.")
         else:
@@ -238,38 +239,82 @@ class MikuLLM:
             print(f"Error reading memory: {e}")
             return ""
 
-    def _summarize_memory(self):
-        if not self.chat_history or not self.client:
+    def check_new_day(self):
+        if not self.chat_history:
+            return False
+            
+        now = time.time()
+        last_dt = datetime.datetime.fromtimestamp(self.last_chat_time)
+        now_dt = datetime.datetime.fromtimestamp(now)
+        delay_hours = (now - self.last_chat_time) / 3600.0
+        
+        if last_dt.date() != now_dt.date() and delay_hours >= 8.0:
+            import json
+            archive_name = f"archive_{int(now)}.json"
+            archive_path = os.path.join(self.memory_dir, archive_name)
+            try:
+                with open(archive_path, 'w', encoding='utf-8') as f:
+                    json.dump({'history': self.chat_history, 'last_chat_time': self.last_chat_time}, f, ensure_ascii=False)
+                
+                self.chat_history = []
+                self.last_chat_time = now
+                self._save_active_chat()
+                print(f"LLM: New day detected. Archived chat to {archive_name}.")
+                self._process_unsummarized_archives_async()
+                return True
+            except Exception as e:
+                print(f"LLM: Failed to write archive: {e}")
+        return False
+
+    def _process_unsummarized_archives_async(self):
+        if not self.client or not os.path.exists(self.memory_dir):
             return
             
-        print("LLM: Summarizing previous chat history into long-term memory...")
-        prompt = "请以客观简练的语言，总结昨天 Miku 与用户的以下对话核心内容，提炼出关键信息和情感状态，作为未来的记忆：\n\n"
-        for msg in self.chat_history:
-            role = "用户" if msg['role'] == 'user' else "Miku"
-            prompt += f"{role}: {msg['content']}\n"
+        archives = [f for f in os.listdir(self.memory_dir) if f.startswith('archive_') and f.endswith('.json')]
+        if not archives:
+            return
             
-        try:
-            resp = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,
-                timeout=10.0
-            )
-            summary = resp.choices[0].message.content.strip()
-            
-            date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            filename = os.path.join(self.memory_dir, f"{date_str}memorize.md")
-            
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(summary)
-            print(f"LLM: Saved memory to {filename}")
-            
-        except Exception as e:
-            print(f"LLM: Failed to summarize memory: {e}")
-            
-        # Clear history after summarizing
-        self.chat_history = []
-        self._save_active_chat()
+        import threading
+        def task():
+            import json
+            for arch in archives:
+                arch_path = os.path.join(self.memory_dir, arch)
+                try:
+                    with open(arch_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        history = data.get('history', []) if isinstance(data, dict) else data
+                        
+                    if not history:
+                        os.remove(arch_path)
+                        continue
+                        
+                    print(f"LLM: Summarizing archive {arch} into long-term memory...")
+                    prompt = "请以客观简练的语言，总结Miku与用户的以下对话核心内容，提炼出关键信息和情感状态，作为未来的记忆：\n\n"
+                    for msg in history:
+                        role = "用户" if msg.get('role') == 'user' else "Miku"
+                        prompt += f"{role}: {msg.get('content')}\n"
+                        
+                    resp = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=1500,
+                        timeout=30.0
+                    )
+                    summary = resp.choices[0].message.content.strip()
+                    
+                    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+                    filename = os.path.join(self.memory_dir, f"{date_str}memorize.md")
+                    
+                    mode = 'a' if os.path.exists(filename) else 'w'
+                    with open(filename, mode, encoding='utf-8') as f:
+                        f.write(f"\n\n{summary}" if mode == 'a' else summary)
+                        
+                    print(f"LLM: Saved memory to {filename}")
+                    os.remove(arch_path)
+                except Exception as e:
+                    print(f"LLM: Failed to summarize {arch}: {e}")
+                    
+        threading.Thread(target=task, daemon=True).start()
 
     # ── Public methods ────────────────────────────────────────────────────────
 
@@ -330,17 +375,8 @@ class MikuLLM:
             return fallback_msg
 
     def chat_with_miku(self, user_text: str, hidden_context: str = None, lang: str = 'zh') -> str:
+        self.check_new_day()
         now = time.time()
-        
-        # Check if new day and delay >= 8 hours
-        if self.chat_history:
-            last_dt = datetime.datetime.fromtimestamp(self.last_chat_time)
-            now_dt = datetime.datetime.fromtimestamp(now)
-            delay_hours = (now - self.last_chat_time) / 3600.0
-            
-            is_new_day = last_dt.date() != now_dt.date()
-            if is_new_day and delay_hours >= 8.0:
-                self._summarize_memory()
 
         self.last_chat_time = now
 
@@ -351,7 +387,7 @@ class MikuLLM:
         memory = self._get_latest_memory()
         memory_prompt = f"\n这是你上一轮的记忆摘要：\n{memory}\n请结合这些记忆与用户进行今天的对话。" if memory else ""
         
-        master_name = "用户"
+        master_name = None
         if os.path.exists(self.master_name_file):
             try:
                 with open(self.master_name_file, 'r', encoding='utf-8') as f:
@@ -360,12 +396,16 @@ class MikuLLM:
             except Exception:
                 pass
                 
+        name_prompt_ja = f"ユーザーの名前は「{master_name}」です。" if master_name else "ユーザーと親しく話してください。"
+        name_prompt_en = f"The user's name is {master_name}." if master_name else "Address the user affectionately."
+        name_prompt_zh = f"主人的名字叫「{master_name}」，请在合适的时机称呼主人。" if master_name else "请在合适的时机以亲昵的方式称呼用户。"
+                
         if lang == 'ja':
-            sys_msg = f"あなたは初音ミクです。活発で可愛く、優しいトーンで簡潔に返答してください。ユーザーの名前は「{master_name}」です。{memory_prompt}\n【重要】歌を歌う場合は文頭に [PLAY_MUSIC]、画像を見せる場合は文頭に [SHOW_IMAGE] を置いてください。動作を描写する（「画像を出す」「歌う」など）のは構いませんが、画像や曲の「具体的な内容（ネギを持っている、曲名など）」は描写しないでください（ランダム再生のため矛盾が生じます）。「これ可愛いでしょう？」など抽象的に言及してください。"
+            sys_msg = f"あなたは初音ミクです。活発で可愛く、優しいトーンで簡潔に返答してください。{name_prompt_ja}{memory_prompt}\n【重要】歌を歌う場合は文頭に [PLAY_MUSIC]、画像を見せる場合は文頭に [SHOW_IMAGE] を置いてください。動作を描写する（「画像を出す」「歌う」など）のは構いませんが、画像や曲の「具体的な内容（ネギを持っている、曲名など）」は描写しないでください（ランダム再生のため矛盾が生じます）。「これ可愛いでしょう？」など抽象的に言及してください。"
         elif lang == 'en':
-            sys_msg = f"You are Hatsune Miku, a cute and cheerful virtual companion. The user's name is {master_name}. Keep your answers brief and sweet. {memory_prompt}\n[CRITICAL]: To play a song, start your reply with [PLAY_MUSIC]. To show a picture, start with [SHOW_IMAGE]. You may roleplay the action of taking out a picture or singing, but DO NOT describe the specific contents of the picture or the song (e.g., holding a leek, specific lyrics), as they are randomly selected. Use broad descriptions like 'Isn\'t this cute?'."
+            sys_msg = f"You are Hatsune Miku, a cute and cheerful virtual companion. {name_prompt_en} Keep your answers brief and sweet. {memory_prompt}\n[CRITICAL]: To play a song, start your reply with [PLAY_MUSIC]. To show a picture, start with [SHOW_IMAGE]. You may roleplay the action of taking out a picture or singing, but DO NOT describe the specific contents of the picture or the song (e.g., holding a leek, specific lyrics), as they are randomly selected. Use broad descriptions like 'Isn\'t this cute?'."
         else:
-            sys_msg = f"你是初音未来（Miku），一个在桌面上陪伴主人学习和工作的可爱虚拟看板娘。主人的名字叫「{master_name}」，请在合适的时机称呼主人。请用活泼、可爱、温柔的语气简短回复。{memory_prompt}\n【最高指令】：如果你想放歌，必须将 [PLAY_MUSIC] 放在回复的最开头；如果你想发表情包，必须将 [SHOW_IMAGE] 放在回复的最开头。你可以用文字描述‘拿出表情包’或‘准备唱歌’的动作，但【绝对不要】描述表情包或歌曲的具体内容（比如不要说‘抱着葱’、不要说具体歌名或歌词），因为内容是系统随机播放的，会产生矛盾。请使用宽泛抽象的描述，比如‘看这个，本小姐可爱吧~’或‘听听这首歌放松下~’。"
+            sys_msg = f"你是初音未来（Miku），一个在桌面上陪伴主人学习和工作的可爱虚拟看板娘。{name_prompt_zh}请用活泼、可爱、温柔的语气简短回复。{memory_prompt}\n【最高指令】：如果你想放歌，必须将 [PLAY_MUSIC] 放在回复的最开头；如果你想发表情包，必须将 [SHOW_IMAGE] 放在回复的最开头。你可以用文字描述‘拿出表情包’或‘准备唱歌’的动作，但【绝对不要】描述表情包或歌曲的具体内容（比如不要说‘抱着葱’、不要说具体歌名或歌词），因为内容是系统随机播放的，会产生矛盾。请使用宽泛抽象的描述，比如‘看这个，本小姐可爱吧~’或‘听听这首歌放松下~’。"
 
         messages = [{"role": "system", "content": sys_msg}]
         

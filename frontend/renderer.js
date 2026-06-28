@@ -577,12 +577,18 @@ function connectBackend() {
       const selApiId = localStorage.getItem('miku-sel-api') || '';
       const selModel = localStorage.getItem('miku-sel-model') || '';
       try {
-        const apis = JSON.parse(localStorage.getItem('miku-apis') || '[]');
+        const apiJsonPath = path.join(__dirname, '..', 'user', 'keys', 'api.json');
+        let apis = [];
+        if (fs.existsSync(apiJsonPath)) {
+          apis = JSON.parse(fs.readFileSync(apiJsonPath, 'utf8')) || [];
+        }
         const api  = apis.find(a => a.id === selApiId);
         if (api) {
           ws.send(JSON.stringify({ type: 'change_llm', base_url: api.baseUrl, api_key: api.apiKey, model: selModel }));
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Failed to load api config on startup', e);
+      }
     }
   };
   

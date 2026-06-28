@@ -139,6 +139,7 @@ def handle_frontend_message(data):
         threading.Thread(target=_process_chat, daemon=True).start()
 
     elif msg_type == 'get_chat_history':
+        llm.check_new_day()
         ws_server.send_to_all({
             'type': 'chat_history_response',
             'history': llm.chat_history
