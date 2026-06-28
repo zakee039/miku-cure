@@ -378,3 +378,48 @@ app.on('activate', function () {
     createWindow();
   }
 });
+
+// ── Configuration & Version IPC ─────────────────────────────────────────────
+const userDir = path.join(__dirname, '..', 'user');
+const configJsonPath = path.join(userDir, 'config.json');
+
+function loadConfig() {
+  try {
+    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+    if (fs.existsSync(configJsonPath)) {
+      return JSON.parse(fs.readFileSync(configJsonPath, 'utf8')) || {};
+    }
+  } catch (e) {
+    console.error('Failed to load config.json', e);
+  }
+  return {};
+}
+
+function saveConfig(config) {
+  try {
+    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+    fs.writeFileSync(configJsonPath, JSON.stringify(config, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to save config.json', e);
+  }
+}
+
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion();
+});
+
+ipcMain.on('get-config', (event, key) => {
+  const config = loadConfig();
+  event.returnValue = config[key] !== undefined ? config[key] : null;
+});
+
+ipcMain.on('set-config', (event, data) => {
+  const { key, val } = data;
+  const config = loadConfig();
+  if (val === null || val === undefined) {
+    delete config[key];
+  } else {
+    config[key] = val;
+  }
+  saveConfig(config);
+});

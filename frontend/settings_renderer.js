@@ -33,8 +33,8 @@ function uid() {
 // ── Broadcast current LLM selection to backend (via main process) ─────────────
 function broadcastLlmConfig() {
   const apis  = loadApis();
-  const selId = localStorage.getItem(LS_SEL_API) || '';
-  const model = localStorage.getItem(LS_SEL_MODEL) || '';
+  const selId = ipcRenderer.sendSync('get-config', LS_SEL_API) || '';
+  const model = ipcRenderer.sendSync('get-config', LS_SEL_MODEL) || '';
   const api   = apis.find(a => a.id === selId);
   if (api) {
     ipcRenderer.send('llm-changed', { baseUrl: api.baseUrl, apiKey: api.apiKey, model });
@@ -69,6 +69,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   applyAllTranslations();
 
+  // ── Inject Version ────────────────────────────────────────────────────────
+  ipcRenderer.invoke('get-app-version').then(version => {
+    const el = document.getElementById('about-ver');
+    if (el) el.textContent = 'v' + version;
+  });
+
   // ── Model Select ─────────────────────────────────────────────────────────
   const modelSelect = document.getElementById('model-select');
   const btnTrain = document.getElementById('btn-train');
@@ -98,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dlRow.style.display = 'flex';
         if (modelSelect.value === 'deepface') {
           modelSelect.value = 'mock';
-          localStorage.setItem('miku-model-type', 'mock');
+          ipcRenderer.send('set-config', {key: 'miku-model-type', val: 'mock'});
           ipcRenderer.send('model-changed', 'mock');
         }
       }
@@ -147,27 +153,27 @@ document.addEventListener('DOMContentLoaded', () => {
     console.error('Failed to load models:', err);
   }).finally(() => {
     checkDeepfaceStatus().then(() => {
-      const savedModel = localStorage.getItem('miku-model-type');
+      const savedModel = ipcRenderer.sendSync('get-config', 'miku-model-type');
       if (savedModel && Array.from(modelSelect.options).some(o => o.value === savedModel && !o.disabled)) {
         modelSelect.value = savedModel;
       } else {
         const fallback = modelSelect.querySelector('option[value="deepface"]').disabled ? 'mock' : 'deepface';
         modelSelect.value = fallback;
-        localStorage.setItem('miku-model-type', fallback);
+        ipcRenderer.send('set-config', {key: 'miku-model-type', val: fallback});
       }
     });
   });
 
   modelSelect.addEventListener('change', () => {
-    localStorage.setItem('miku-model-type', modelSelect.value);
+    ipcRenderer.send('set-config', {key: 'miku-model-type', val: modelSelect.value});
     ipcRenderer.send('model-changed', modelSelect.value);
   });
 
   // ── Size Select ──────────────────────────────────────────────────────────
   const sizeSelect = document.getElementById('size-select');
-  sizeSelect.value = localStorage.getItem('miku-window-size') || 'medium';
+  sizeSelect.value = ipcRenderer.sendSync('get-config', 'miku-window-size') || 'medium';
   sizeSelect.addEventListener('change', () => {
-    localStorage.setItem('miku-window-size', sizeSelect.value);
+    ipcRenderer.send('set-config', {key: 'miku-window-size', val: sizeSelect.value});
     ipcRenderer.send('size-changed', sizeSelect.value);
   });
 
@@ -176,11 +182,11 @@ document.addEventListener('DOMContentLoaded', () => {
   langSelect.value = getCurrentLang();
   langSelect.addEventListener('change', () => {
     const lang = langSelect.value;
-    localStorage.setItem('miku-language', lang);
+    ipcRenderer.send('set-config', {key: 'miku-language', val: lang});
     applyAllTranslations();
     renderApiList();          // re-render API list with new i18n
     if (ceremonySuccessSection.style.display === 'block') {
-      const masterName = localStorage.getItem('miku-master-name') || '用户';
+      const masterName = ipcRenderer.sendSync('get-config', 'miku-master-name') || '主人';
       ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
     }
     ipcRenderer.send('lang-changed', lang);
@@ -207,8 +213,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Render API active selector ────────────────────────────────────────────
   function renderActiveSelectors() {
     const apis   = loadApis();
-    const selId  = localStorage.getItem(LS_SEL_API) || '';
-    const selMod = localStorage.getItem(LS_SEL_MODEL) || '';
+    const selId  = ipcRenderer.sendSync('get-config', LS_SEL_API) || '';
+    const selMod = ipcRenderer.sendSync('get-config', LS_SEL_MODEL) || '';
 
     // Populate API dropdown
     apiActiveSelect.innerHTML = `<option value="">${t('api.none')}</option>`;
@@ -245,16 +251,16 @@ document.addEventListener('DOMContentLoaded', () => {
   apiActiveSelect.addEventListener('change', () => {
     const apis = loadApis();
     const selId = apiActiveSelect.value;
-    localStorage.setItem(LS_SEL_API, selId);
+    ipcRenderer.send('set-config', {key: LS_SEL_API, val: selId});
     const api = apis.find(a => a.id === selId);
     const firstModel = api && api.models[0] ? api.models[0] : '';
-    localStorage.setItem(LS_SEL_MODEL, firstModel);
+    ipcRenderer.send('set-config', {key: LS_SEL_MODEL, val: firstModel});
     updateModelDropdown(api, firstModel);
     broadcastLlmConfig();
   });
 
   modelActiveSelect.addEventListener('change', () => {
-    localStorage.setItem(LS_SEL_MODEL, modelActiveSelect.value);
+    ipcRenderer.send('set-config', {key: LS_SEL_MODEL, val: modelActiveSelect.value});
     broadcastLlmConfig();
   });
 
@@ -393,9 +399,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function deleteApi(id) {
     let apis = loadApis().filter(a => a.id !== id);
     saveApis(apis);
-    if (localStorage.getItem(LS_SEL_API) === id) {
-      localStorage.removeItem(LS_SEL_API);
-      localStorage.removeItem(LS_SEL_MODEL);
+    if (ipcRenderer.sendSync('get-config', LS_SEL_API) === id) {
+      ipcRenderer.send('set-config', {key: LS_SEL_API, val: null});
+      ipcRenderer.send('set-config', {key: LS_SEL_MODEL, val: null});
       broadcastLlmConfig();
     }
     renderApiList();
@@ -533,8 +539,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ceremonyIdleSection.style.display = 'none';
             ceremonySuccessSection.style.display = 'block';
             ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
-            localStorage.setItem('miku-master-name', masterName);
-            localStorage.setItem('miku-ceremony-done', 'true');
+            ipcRenderer.send('set-config', {key: 'miku-master-name', val: masterName});
+            // ceremony done is now file based
           } else {
             alert("认主失败：" + data.error);
             ceremonyModal.style.display = 'none';
@@ -568,8 +574,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ws.send(JSON.stringify({ type: 'delete_lora_data' }));
         setTimeout(() => ws.close(), 1000);
       };
-      localStorage.removeItem('miku-ceremony-done');
-      localStorage.removeItem('miku-master-name');
+      // ceremony done is now file based
+      ipcRenderer.send('set-config', {key: 'miku-master-name', val: null});
       ceremonyNameInput.value = '';
       ceremonyIdleSection.style.display = 'flex';
       ceremonySuccessSection.style.display = 'none';
@@ -577,8 +583,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Check state on load
-  if (localStorage.getItem('miku-ceremony-done') === 'true') {
-    const masterName = localStorage.getItem('miku-master-name') || '用户';
+  const loraDir = path.join(__dirname, '..', 'user', 'lora');
+  if (fs.existsSync(loraDir) && fs.readdirSync(loraDir).some(f => f.endsWith('.safetensors') || f.endsWith('.pth'))) {
+    const masterName = ipcRenderer.sendSync('get-config', 'miku-master-name') || '主人';
     ceremonyNameInput.value = masterName;
     ceremonyIdleSection.style.display = 'none';
     ceremonySuccessSection.style.display = 'block';

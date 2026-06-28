@@ -113,7 +113,7 @@ let focusStartTimeStr = "";
 let currentSingIndex = 0;
 let currentDanceIndex = 0;
 let isPlayingSing = false;
-let currentModelType = localStorage.getItem('miku-model-type') || 'cnn';
+let currentModelType = ipcRenderer.sendSync('get-config', 'miku-model-type') || 'cnn';
 
 
 
@@ -574,8 +574,8 @@ function connectBackend() {
       // Sync current language to backend
       ws.send(JSON.stringify({ type: 'set_lang', lang: require('./i18n').getCurrentLang() }));
       // Sync current LLM config to backend
-      const selApiId = localStorage.getItem('miku-sel-api') || '';
-      const selModel = localStorage.getItem('miku-sel-model') || '';
+      const selApiId = ipcRenderer.sendSync('get-config', 'miku-sel-api') || '';
+      const selModel = ipcRenderer.sendSync('get-config', 'miku-sel-model') || '';
       try {
         const apiJsonPath = path.join(__dirname, '..', 'user', 'keys', 'api.json');
         let apis = [];
@@ -741,12 +741,13 @@ ipcRenderer.on('llm-changed', (event, config) => {
 
 // Dynamic Window Size Setup
 ipcRenderer.on('force-adjust-size', (event, sizeStr) => {
-  if (sizeStr) localStorage.setItem('miku-window-size', sizeStr);
+  if (sizeStr) ipcRenderer.send('set-config', { key: 'miku-window-size', val: sizeStr });
   adjustWindowSize();
 });
 
 function adjustWindowSize() {
-  const size = localStorage.getItem('miku-window-size') || 'medium';
+  // Update layout constraints
+  const size = ipcRenderer.sendSync('get-config', 'miku-window-size') || 'medium';
   let scale = 1.0;
   if (size === 'small') scale = 0.67;
   if (size === 'large') scale = 1.5;
@@ -786,7 +787,7 @@ function adjustWindowSize() {
 mikuVideo.addEventListener('loadedmetadata', adjustWindowSize);
 
 // Trigger initial setup using saved size
-const currentWindowSize = localStorage.getItem('miku-window-size') || 'medium';
+const currentWindowSize = ipcRenderer.sendSync('get-config', 'miku-window-size') || 'medium';
 ipcRenderer.send('size-changed', currentWindowSize);
 
 // Launch backend as child process bound to this Electron window

@@ -467,7 +467,7 @@ const translations = {
 
 /** Get the currently saved language code (defaults to 'zh'). */
 function getCurrentLang() {
-  try { return localStorage.getItem('miku-language') || 'zh'; } catch { return 'zh'; }
+  try { return require('electron').ipcRenderer.sendSync('get-config', 'miku-language') || 'zh'; } catch { return 'zh'; }
 }
 
 /**
