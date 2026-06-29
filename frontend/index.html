@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Miku情绪伴侣</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container" id="app">
+    
+    <!-- Main Pet Viewport (200x200 square) -->
+    <div class="pet-viewport" id="pet-viewport">
+      
+      <!-- Miku Display Area (exact 200x200 container) -->
+      <div class="miku-display-area" id="miku-display">
+        <video id="miku-video" autoplay loop muted src=""></video>
+
+        <!-- Floating Transparent Header (inside GIF container at top) -->
+        <div class="viewport-header" id="viewport-header">
+          <div class="emotion-badge" id="emotion-badge" data-i18n-title="tip.emotion_badge" title="点击断开/连接摄像头">
+            <div class="emotion-emoji" id="emotion-emoji">😐</div>
+            <div class="emotion-text">
+              <span class="emotion-label" id="emotion-label" data-i18n="emotion.neutral">中性</span>
+              <span class="emotion-conf" id="emotion-conf">--%</span>
+            </div>
+          </div>
+          <div class="control-icons">
+            <button class="ctrl-btn" id="timer-toggle"    data-i18n-title="tip.timer"    title="开始专注 (番茄钟)">🍅</button>
+            <button class="ctrl-btn" id="settings-toggle" data-i18n-title="tip.settings" title="打开设置">⚙️</button>
+            <button class="ctrl-btn" id="talent-toggle"   data-i18n-title="tip.talent"   title="Miku才艺演示">⭐</button>
+            <button class="ctrl-btn close-btn" id="close-btn" data-i18n-title="tip.close" title="关闭挂件">✕</button>
+          </div>
+        </div>
+
+        <!-- Overlay 1: Timer panel -->
+        <div class="timer-overlay hide" id="timer-panel">
+          <!-- Setup input -->
+          <div class="timer-setup" id="timer-setup">
+            <div class="timer-setup-left">
+              <input type="number" id="duration-input" min="1" max="180" value="30">
+              <span class="unit-text" id="unit-min" data-i18n="unit.min">分</span>
+            </div>
+            <div class="timer-divider"></div>
+            <div class="timer-setup-right">
+              <button class="timer-start-btn" id="start-btn" data-i18n="btn.start_focus">开始专注</button>
+            </div>
+          </div>
+          <!-- Active countdown -->
+          <div class="timer-active hide" id="timer-active">
+            <button class="active-btn pause-btn" id="pause-btn" data-i18n-title="tip.pause" title="暂停/继续">||</button>
+            <span class="countdown-display" id="countdown">30:00</span>
+            <button class="active-btn stop-btn" id="stop-btn" data-i18n-title="tip.stop" title="终止">✕</button>
+          </div>
+        </div>
+
+        <!-- Overlay 2: Talent option list -->
+        <div class="talent-overlay hide" id="talent-panel">
+          <button class="talent-btn" id="action-sing"  data-i18n="btn.sing">唱歌</button>
+          <button class="talent-btn" id="action-chat"  data-i18n="btn.chat">聊天</button>
+          <button class="talent-btn" id="action-dance" data-i18n="btn.dance">跳舞</button>
+        </div>
+
+        <!-- Overlay 3: Sing Mode Media Player -->
+        <div class="media-player-overlay hide" id="media-player-panel">
+          <div class="player-left-controls">
+            <button class="player-btn" id="player-prev" data-i18n-title="tip.prev"  title="上一首">&lt;</button>
+            <button class="player-btn" id="player-play" data-i18n-title="tip.play"  title="播放/暂停">||</button>
+            <button class="player-btn" id="player-next" data-i18n-title="tip.next"  title="下一首">&gt;</button>
+          </div>
+          <div class="marquee-container">
+            <div class="marquee-text" id="song-title" data-i18n="player.no_song">当前无播放</div>
+          </div>
+          <button class="player-btn close-btn" id="player-close" data-i18n-title="tip.player_close" title="关闭播放器">×</button>
+        </div>
+
+        <!-- Overlay 4: Dance Mode Controls -->
+        <div class="dance-controls-overlay hide" id="dance-controls-panel">
+          <button class="player-btn next-btn" id="dance-next" data-i18n-title="tip.dance_next" title="下一个舞蹈">↺</button>
+          <button class="player-btn close-btn" id="dance-close" data-i18n-title="tip.dance_close" title="停止跳舞">×</button>
+        </div>
+
+        <!-- Overlay 5: Volume OSD -->
+        <div class="volume-osd hide" id="volume-osd">
+          <div class="volume-icon" id="volume-icon">🔊</div>
+          <div class="volume-text" id="volume-text">50%</div>
+        </div>
+
+      </div>
+
+      <!-- Floating chat bubble dialogue -->
+      <div class="chat-bubble hide" id="chat-bubble">
+        <div class="chat-triangle"></div>
+        <div class="chat-text" id="chat-text">人，要不要我给你跳个舞/唱首歌放松一下？</div>
+        <div class="chat-actions" id="chat-actions">
+          <button class="bubble-btn dance-btn"   id="bubble-dance"   data-i18n="btn.bubble_dance">💃 跳舞</button>
+          <button class="bubble-btn sing-btn"    id="bubble-sing"    data-i18n="btn.bubble_sing">🎵 唱歌</button>
+          <button class="bubble-btn dismiss-btn" id="bubble-dismiss" data-i18n="btn.bubble_dismiss">下次吧</button>
+        </div>
+      </div>
+
+      <!-- Proactive Care Popup -->
+      <div class="care-popup hide" id="care-popup">
+        <div class="care-text" id="care-text">看你好像不太开心，遇到什么麻烦了吗？</div>
+        <div class="care-actions">
+          <button class="care-btn chat-btn" id="care-chat-btn" data-i18n="btn.care_chat">聊一聊</button>
+          <button class="care-btn dismiss-btn" id="care-dismiss-btn" data-i18n="btn.care_dismiss">我没事</button>
+        </div>
+      </div>
+
+    </div>
+
+
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

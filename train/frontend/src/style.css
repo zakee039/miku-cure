@@ -1,0 +1,177 @@
+:root {
+  --base-bg: #ffffff;
+  --base-surface: #fdfdfd;
+  --text-main: #333333;
+  --text-muted: #888888;
+  --primary: #39C5BB; /* Miku Cyan */
+  --primary-hover: rgba(57, 197, 187, 0.8);
+  --accent: #E12885; /* Magenta */
+  --accent-hover: rgba(225, 40, 133, 0.8);
+  --border-light: #EBEBEB;
+  
+  --font-family: 'Varela Round', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-soft: 0 4px 12px rgba(57, 197, 187, 0.15);
+  --shadow-hover: 0 6px 16px rgba(57, 197, 187, 0.3);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--base-bg);
+  background-image: 
+    radial-gradient(circle at 5% 5%, rgba(57, 197, 187, 0.03) 0%, transparent 20%),
+    radial-gradient(circle at 95% 95%, rgba(225, 40, 133, 0.02) 0%, transparent 20%);
+  color: var(--text-main);
+  font-family: var(--font-family);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+/* Base Card Style */
+.miku-card {
+  background: var(--base-bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
+  padding: 24px;
+  transition: all 0.3s ease;
+}
+
+/* Mecha Chamfered Card (for special sections) */
+.miku-card-mecha {
+  background: var(--base-bg);
+  border: 1px solid var(--border-light);
+  /* Top-right chamfered corner */
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+  box-shadow: var(--shadow-soft);
+  padding: 24px;
+  position: relative;
+}
+/* Fake border for clip-path */
+.miku-card-mecha::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: var(--primary);
+  z-index: -1;
+  margin: -1px;
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+}
+
+/* Buttons */
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(57, 197, 187, 0.3);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  background: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(225, 40, 133, 0.3);
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(225, 40, 133, 0.4);
+}
+
+.btn-accent:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-accent:disabled {
+  background: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Links */
+.miku-link {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color 0.2s;
+  position: relative;
+}
+.miku-link:hover {
+  color: var(--accent);
+}
+.miku-link::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  transform: scaleX(0);
+  height: 2px;
+  bottom: -2px;
+  left: 0;
+  background-color: var(--accent);
+  transform-origin: bottom right;
+  transition: transform 0.25s ease-out;
+}
+.miku-link:hover::after {
+  transform: scaleX(1);
+  transform-origin: bottom left;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--base-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
