@@ -3,12 +3,34 @@ const path = require('path');
 const { ipcRenderer } = require('electron');
 const { t, applyI18n } = require('./i18n');
 
-// Get project paths
-const projectRoot = path.join(__dirname, '..');
-const gifDir = path.join(projectRoot, 'miku', 'gif');
-const danceDir = path.join(projectRoot, 'miku', 'dance');
-const singDir = path.join(projectRoot, 'miku', 'sing');
-const assetsDir = path.join(projectRoot, 'frontend', 'assets');
+// Resolve media roots (dev / portable / electron-builder)
+function resolveMediaDirs() {
+  const candidates = [
+    process.env.MIKU_PROJECT_ROOT ? path.join(process.env.MIKU_PROJECT_ROOT, 'miku') : null,
+    process.env.MIKU_RESOURCES ? path.join(process.env.MIKU_RESOURCES, 'miku') : null,
+    path.join(__dirname, '..', 'miku'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'miku') : null,
+  ].filter(Boolean);
+  for (const root of candidates) {
+    if (fs.existsSync(root)) {
+      return {
+        projectRoot: path.dirname(root),
+        gifDir: path.join(root, 'gif'),
+        danceDir: path.join(root, 'dance'),
+        singDir: path.join(root, 'sing'),
+      };
+    }
+  }
+  const fallback = path.join(__dirname, '..', 'miku');
+  return {
+    projectRoot: path.join(__dirname, '..'),
+    gifDir: path.join(fallback, 'gif'),
+    danceDir: path.join(fallback, 'dance'),
+    singDir: path.join(fallback, 'sing'),
+  };
+}
+const { projectRoot, gifDir, danceDir, singDir } = resolveMediaDirs();
+const assetsDir = path.join(__dirname, 'assets');
 
 // Cache resource file lists
 let gifFiles = [];
@@ -113,7 +135,15 @@ let focusStartTimeStr = "";
 let currentSingIndex = 0;
 let currentDanceIndex = 0;
 let isPlayingSing = false;
-let currentModelType = ipcRenderer.sendSync('get-config', 'miku-model-type') || 'cnn';
+let currentModelType = ipcRenderer.sendSync('get-config', 'miku-model-type') || 'best_rnn_attention.pth';
+// Migrate obsolete engines (DeepFace fully removed) → default RNN
+{
+  const mt = String(currentModelType || '').toLowerCase();
+  if (mt === 'deepface' || mt === 'df' || mt.includes('deepface') || mt === 'cnn') {
+    currentModelType = 'best_rnn_attention.pth';
+    ipcRenderer.send('set-config', { key: 'miku-model-type', val: currentModelType });
+  }
+}
 
 
 
@@ -459,6 +489,8 @@ ipcRenderer.on('change-model', (event, selectedModel) => {
   }
 });
 
+// When user changes LLM in settings, force re-sync is not needed — llm-changed IPC already forwards.
+
 startBtn.addEventListener('click', () => {
   const mins = parseInt(durationInput.value) || 30;
   focusTimeTotal = mins * 60;
@@ -562,54 +594,109 @@ function updateStatus(text, color) {
   console.log("Status changed:", text);
 }
 
-// 7. WebSocket connection to Python Backend
-function connectBackend() {
-  ws = new WebSocket('ws://localhost:8765');
-  
-  ws.onopen = () => {
-    console.log('Connected to Python emotion backend.');
-    updateStatus(t('status.idle'), "#39c5bb");
-    // Send initial model selection state to backend
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'change_model', model_type: currentModelType }));
-      // Sync current language to backend
-      ws.send(JSON.stringify({ type: 'set_lang', lang: require('./i18n').getCurrentLang() }));
-      // Sync current LLM config to backend
-      const selApiId = ipcRenderer.sendSync('get-config', 'miku-sel-api') || '';
-      const selModel = ipcRenderer.sendSync('get-config', 'miku-sel-model') || '';
-      try {
-        const apiJsonPath = path.join(__dirname, '..', 'user', 'keys', 'api.json');
-        let apis = [];
-        if (fs.existsSync(apiJsonPath)) {
-          apis = JSON.parse(fs.readFileSync(apiJsonPath, 'utf8')) || [];
-        }
-        const api  = apis.find(a => a.id === selApiId);
-        if (api) {
-          ws.send(JSON.stringify({ type: 'change_llm', base_url: api.baseUrl, api_key: api.apiKey, model: selModel }));
-        }
-      } catch (e) {
-        console.error('Failed to load api config on startup', e);
+// 7. WebSocket connection to Python Backend (ready handshake + exponential backoff)
+let wsRetryDelay = 1000;
+const WS_RETRY_MAX = 15000;
+let backendReady = false;
+
+/** Resolve backend WS URL. Prefer 13939; runtime port written to user/ws_port.json. */
+function getBackendWsUrl() {
+  try {
+    const portFile = path.join(projectRoot, 'user', 'ws_port.json');
+    // Packaged: user dir may live under userData — also try sibling of backend
+    const candidates = [
+      portFile,
+      path.join(__dirname, '..', 'user', 'ws_port.json'),
+      process.env.MIKU_USER_DIR ? path.join(process.env.MIKU_USER_DIR, 'ws_port.json') : null,
+    ].filter(Boolean);
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+        const host = cfg.host || '127.0.0.1';
+        const port = cfg.port || 13939;
+        return `ws://${host}:${port}`;
       }
     }
+  } catch (e) {
+    console.warn('Failed to read ws_port.json', e);
+  }
+  return 'ws://127.0.0.1:13939';
+}
+
+// Hoisted — avoid reallocating map on every 1Hz emotion_update
+const EMOTION_UI_MAP = {
+  happy:    { emoji: '😊', key: 'emotion.happy' },
+  neutral:  { emoji: '😐', key: 'emotion.neutral' },
+  sadness:  { emoji: '😔', key: 'emotion.sadness' },
+  anger:    { emoji: '😠', key: 'emotion.anger' },
+  fear:     { emoji: '😨', key: 'emotion.fear' },
+  disgust:  { emoji: '🤢', key: 'emotion.disgust' },
+  surprise: { emoji: '😲', key: 'emotion.surprise' },
+  contempt: { emoji: '😒', key: 'emotion.contempt' },
+  no_face:  { emoji: '👽', key: 'emotion.no_face' },
+};
+
+let configSynced = false;
+
+async function syncConfigToBackend(force = false) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (configSynced && !force) return;
+  configSynced = true;
+  ws.send(JSON.stringify({ type: 'change_model', model_type: currentModelType }));
+  ws.send(JSON.stringify({ type: 'set_lang', lang: require('./i18n').getCurrentLang() }));
+  try {
+    const cfg = await ipcRenderer.invoke('get-selected-llm');
+    if (cfg && (cfg.apiKey || cfg.baseUrl)) {
+      ws.send(JSON.stringify({
+        type: 'change_llm',
+        base_url: cfg.baseUrl || '',
+        api_key: cfg.apiKey || '',
+        model: cfg.model || '',
+      }));
+    }
+  } catch (e) {
+    console.error('Failed to sync LLM config', e);
+  }
+}
+
+function connectBackend() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  try {
+    const url = getBackendWsUrl();
+    console.log('Connecting backend WS:', url);
+    ws = new WebSocket(url);
+  } catch (e) {
+    console.warn('WebSocket construct failed', e);
+    scheduleReconnect();
+    return;
+  }
+
+  ws.onopen = () => {
+    console.log('Connected to Python emotion backend (awaiting ready).');
+    updateStatus(t('status.idle'), "#39c5bb");
+    wsRetryDelay = 1000;
+    configSynced = false;
+    ws.send(JSON.stringify({ type: 'ping' }));
   };
-  
+
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      
+
+      // Handshake once per connection — avoid thrashing change_model/change_llm
+      if (data.type === 'backend_ready' || data.type === 'pong') {
+        if (!backendReady) {
+          backendReady = true;
+          console.log('Backend ready handshake OK.');
+        }
+        syncConfigToBackend(false);
+      }
+
       // Real-time emotion update
       if (data.type === 'emotion_update') {
-        const emotionMap = {
-          'happy':   { emoji: '😊', key: 'emotion.happy' },
-          'neutral': { emoji: '😐', key: 'emotion.neutral' },
-          'sadness': { emoji: '😔', key: 'emotion.sadness' },
-          'anger':   { emoji: '😠', key: 'emotion.anger' },
-          'fear':    { emoji: '😨', key: 'emotion.fear' },
-          'disgust': { emoji: '🤢', key: 'emotion.disgust' },
-          'surprise':{ emoji: '😲', key: 'emotion.surprise' },
-          'no_face': { emoji: '👽', key: 'emotion.no_face' }
-        };
-        const info    = emotionMap[data.emotion] || { emoji: '😐', key: 'emotion.neutral' };
+        const info = EMOTION_UI_MAP[data.emotion] || EMOTION_UI_MAP.neutral;
 
         const percent = Math.round(data.confidence * 100);
         const emojiEl = document.getElementById('emotion-emoji');
@@ -650,26 +737,33 @@ function connectBackend() {
       if (data.type === 'chat_history_response') {
         ipcRenderer.send('chat-history-from-backend', data.history);
       }
-      
-      // DeepFace Download
-      if (data.type === 'download_progress' || data.type === 'download_complete') {
-        ipcRenderer.send('deepface-download-status', data);
-      }
     } catch (e) {
       console.error("Error processing websocket message:", e);
     }
   };
   
+  ws.onerror = () => {
+    // onclose will fire; avoid double schedule
+  };
+
   ws.onclose = () => {
-    console.warn('Backend connection lost. Retrying in 3 seconds...');
+    backendReady = false;
+    configSynced = false;
+    console.warn(`Backend connection lost. Retrying in ${wsRetryDelay}ms...`);
     const emojiEl = document.getElementById('emotion-emoji');
     const confEl = document.getElementById('emotion-conf');
     const labelEl = document.getElementById('emotion-label');
     if (emojiEl) emojiEl.textContent = "🔌";
     if (confEl) confEl.textContent = "--%";
-    if (labelEl) labelEl.textContent = "断开";
-    setTimeout(connectBackend, 3000);
+    if (labelEl) labelEl.textContent = t('emotion.disconnected');
+    scheduleReconnect();
   };
+}
+
+function scheduleReconnect() {
+  const delay = wsRetryDelay;
+  wsRetryDelay = Math.min(WS_RETRY_MAX, Math.floor(wsRetryDelay * 1.6));
+  setTimeout(connectBackend, delay);
 }
 
 // 8. Period Emotion Report display (Now opens in separate window)
@@ -696,11 +790,6 @@ ipcRenderer.on('forward-history-request-to-backend', () => {
   }
 });
 
-ipcRenderer.on('forward-download-deepface-to-backend', () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'download_deepface' }));
-  }
-});
 
 // Handle actions triggered from the report window
 ipcRenderer.on('action-from-report', (event, action) => {
@@ -796,14 +885,21 @@ mikuVideo.addEventListener('loadedmetadata', adjustWindowSize);
 const currentWindowSize = ipcRenderer.sendSync('get-config', 'miku-window-size') || 'medium';
 ipcRenderer.send('size-changed', currentWindowSize);
 
-// Launch backend as child process bound to this Electron window
-// Detect python executable (prefer .venv)
-const venvPython = path.join(projectRoot, 'backend', '.venv', 'Scripts', 'python.exe');
-const pythonExe = fs.existsSync(venvPython) ? venvPython : 'python';
-ipcRenderer.send('start-backend', pythonExe);
+// Launch backend unless launcher already hosts it (MIKU_EXTERNAL_BACKEND=1)
+const externalBackend = process.env.MIKU_EXTERNAL_BACKEND === '1';
+if (!externalBackend) {
+  const runtimePy = path.join(projectRoot, 'runtime', 'python', 'python.exe');
+  const venvPython = path.join(projectRoot, 'backend', '.venv', 'Scripts', 'python.exe');
+  const pythonExe = fs.existsSync(runtimePy)
+    ? runtimePy
+    : (fs.existsSync(venvPython) ? venvPython : 'python');
+  ipcRenderer.send('start-backend', pythonExe);
+} else {
+  console.log('External backend mode: skip spawn, only connect WS');
+}
 
-// Connect WebSocket after a short delay to let backend start
-setTimeout(connectBackend, 2000);
+// Start WS with short delay; exponential backoff handles slow backend boots
+setTimeout(connectBackend, externalBackend ? 400 : 800);
 
 // ==========================================
 // Volume Control (Global Scroll OSD)

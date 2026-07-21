@@ -1,50 +1,81 @@
-# 本地开发文档 & 设计文件夹
-开发/
+# ══════════════════════════════════════════════════════
+# Miku Cure — Git ignore
+# ══════════════════════════════════════════════════════
 
-# 本地密钥
+# ── 本地开发文档 / 大文件 ────────────────────────────
+# 默认忽略 开发/ 内笔记与大文件，但保留发版相关指南入库
+开发/**
+!开发/版本号管理指南.md
+!开发/软件发布指南.md
+!开发/便携发行包打包指南.md
+!开发/软件打包避坑指南.md
+*.whl
+
+# ── 密钥与环境 ───────────────────────────────────────
 .env
+.env.*
 
-# 本地日志
+# ── 用户数据（API Key、记忆、LoRA、运行时控制）──────
+user/
+
+# ── 日志 ─────────────────────────────────────────────
 logs/
+*.log
+emotion_log.md
+frontend/run_log.txt
+train/logs/
+train/training_log.txt
 
-# ── Python ──────────────────────────────────────────
-# 虚拟环境
+# ── 启动器构建产物（exe 不入库，源码在 launcher/）──
+launcher/build/
+launcher/dist/
+launcher/*.spec
+MikuCure-Launcher.exe
+MikuCure-Launcher-*.exe
+
+# ── 便携发行包产物 ───────────────────────────────────
+packages/
+runtime/
+PORTABLE_MANIFEST.json
+
+# ── Python ───────────────────────────────────────────
 .venv/
 venv/
 env/
-
-# 字节码缓存
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# 测试 & 覆盖率
+*.py[cod]
+*$py.class
 .pytest_cache/
 .coverage
 htmlcov/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
 
-# ── 训练相关（模型权重，体积较大）──────────────────
+# ── 训练权重 / 数据集（体积大）──────────────────────
 train/models/
+train/datasets/
 train/datasets
 
-# ── Node.js / Electron ──────────────────────────────
+# ── Node.js / Electron ───────────────────────────────
 node_modules/
+frontend/dist/
+train/frontend/dist/
 dist/
 build/
 out/
 
-# ── 运行时生成文件 ───────────────────────────────────
-*.log
-emotion_log.md
-
-# ── IDE / 编辑器 ─────────────────────────────────────
+# ── IDE / 系统 ───────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 .DS_Store
 Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+~$*
 
-# 本地用户文件
-user/
+# ── 可选：媒体资源过大时取消注释 ─────────────────────
+# miku/

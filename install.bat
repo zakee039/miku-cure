@@ -4,7 +4,7 @@ setlocal
 echo.
 echo  ========================================
 echo  ^|                                      ^|
-echo  ^|   Miku Cure - Install Script  v1.0.2    ^|
+echo  ^|   Miku Cure - Install Script  v1.1.0    ^|
 echo  +==========================================+
 echo.
 
@@ -13,11 +13,11 @@ set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
 set "VENV=%BACKEND%\.venv"
 
-:: -- Check Python --
+:: -- Check Python (3.10 – 3.13) --
 echo [1/5] Checking Python...
-python -c "import sys; sys.exit(0 if sys.version_info[:2] in [(3,10), (3,11)] else 1)" >nul 2>&1
+python -c "import sys; v=sys.version_info[:2]; sys.exit(0 if v>=(3,10) and v<=(3,13) else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo  ERROR: Python 3.10 or 3.11 is strictly required for compatibility!
+    echo  ERROR: Python 3.10 – 3.13 is required for compatibility!
     echo  Current version:
     python --version
     pause
@@ -51,9 +51,12 @@ if not exist "%VENV%\Scripts\python.exe" (
 echo   Upgrading pip...
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip -q
 
-:: Check for local torch .whl package
+:: Check for local torch .whl package (root or 开发/)
 set "TORCH_WHL="
 for %%f in ("%ROOT%torch-*.whl") do set "TORCH_WHL=%%f"
+if not defined TORCH_WHL (
+    for %%f in ("%ROOT%开发\torch-*.whl") do set "TORCH_WHL=%%f"
+)
 
 if defined TORCH_WHL (
     echo   Found local PyTorch package, installing from file...
@@ -71,6 +74,17 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+
+:: Verify critical imports (MediaPipe Tasks face stack)
+echo   Verifying MediaPipe...
+"%VENV%\Scripts\python.exe" -c "import mediapipe as mp; from mediapipe.tasks.python import vision; assert hasattr(vision,'FaceDetector'); print('  MediaPipe', getattr(mp,'__version__','?'), 'Tasks OK')"
+if errorlevel 1 (
+    echo  WARNING: MediaPipe Tasks import failed. Face detection will use Haar fallback.
+    echo  Try: "%VENV%\Scripts\pip.exe" install --force-reinstall "mediapipe>=0.10.14,<0.11"
+) else (
+    echo   OK: MediaPipe verified.
+)
+
 echo   OK: Python dependencies installed.
 
 :: -- Node.js dependencies --
@@ -111,11 +125,9 @@ echo  ^|   Run start.bat to launch the app.       ^|
 echo  +==========================================+
 echo.
 
-if not exist "%ROOT%.env" (
-    echo  WARNING: .env file not found.
-    echo  Create .env in the project root and add:
-    echo    DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
-    echo.
-)
+echo  TIP: Configure LLM APIs in the Settings panel (keys are encrypted at rest).
+echo  TIP: Smoke test: backend\.venv\Scripts\python.exe backend\test_smoke_e2e.py
+echo  TIP: Live camera:  backend\.venv\Scripts\python.exe backend\test_smoke_e2e.py --live
+echo.
 
 pause

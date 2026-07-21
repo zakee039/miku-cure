@@ -394,29 +394,11 @@
         </div>
         <div class="engine-row">
           <select class="miku-select" id="model-select">
-
-            <option value="mock"      data-i18n-option="model.mock.name">亮度模拟器</option>
+            <option value="best_rnn_attention.pth">RNN + Attention</option>
+            <option value="mock" data-i18n-option="model.mock.name">亮度模拟器</option>
           </select>
           <div class="engine-divider"></div>
           <button class="train-btn" id="btn-train" data-i18n="btn.train">去训练</button>
-        </div>
-      </div>
-
-      <!-- DeepFace Download Section -->
-      <div class="section" id="deepface-section" style="margin-top: 4px;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-            <label class="field-label" data-i18n="model.deepface.download_title">DeepFace 预训练权重</label>
-            <span style="font-size: 12px; color: #9ba8b8;" id="deepface-status-text" data-i18n="model.deepface.not_installed">未安装</span>
-        </div>
-        <div class="engine-row" id="deepface-download-row">
-            <button class="train-btn" id="btn-download-deepface" style="flex:1; border-color:#39c5bb; color:#39c5bb; background:#f0fffe;" data-i18n="btn.download_deepface">一键下载 (约 17MB)</button>
-            <div id="deepface-progress-container" style="flex:2; display:none; align-items:center; gap:8px;">
-                <div style="flex:1; background:#e4e8ee; height:6px; border-radius:3px; overflow:hidden;">
-                    <div id="deepface-progress-bar" style="width:0%; background:#39c5bb; height:100%; transition:width 0.2s;"></div>
-                </div>
-                <span id="deepface-progress-text" style="font-size:12px; color:#6b7a8d; min-width:35px; text-align:right;">0%</span>
-                <span id="deepface-speed-text" style="font-size:12px; color:#6b7a8d; min-width:60px; text-align:right;">0 KB/s</span>
-            </div>
         </div>
       </div>
 

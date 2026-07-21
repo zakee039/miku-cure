@@ -1,13 +1,60 @@
 {
   "name": "miku-cure",
   "productName": "Miku Cure",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "An interactive desktop pet with emotion recognition",
   "main": "main.js",
+  "author": "momo325",
+  "license": "MIT",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^31.7.7"
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.miku.cure",
+    "productName": "Miku Cure",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!run_log.txt",
+      "!dist/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!.venv/**",
+          "!__pycache__/**",
+          "!**/__pycache__/**",
+          "!*.pyc",
+          "!test_*.py"
+        ]
+      },
+      {
+        "from": "../miku",
+        "to": "miku",
+        "filter": ["**/*"]
+      }
+    ],
+    "asarUnpack": [
+      "assets/**"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "assets/miku.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

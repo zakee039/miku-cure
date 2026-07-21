@@ -1,0 +1,1 @@
+# Miku Cure launcher core

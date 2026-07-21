@@ -169,13 +169,21 @@ class MikuLLM:
         self.client   = None
         self.chat_history = []
         self.last_chat_time = time.time()
-        self.lora_dir = os.path.join(os.path.dirname(__file__), "..", "user", "lora")
+        user_root = os.environ.get('MIKU_USER_DIR') or os.path.join(
+            os.path.dirname(__file__), "..", "user"
+        )
+        self.lora_dir = os.path.join(user_root, "lora")
         self.master_name_file = os.path.join(self.lora_dir, "master_name.txt")
-        self.memory_dir = os.path.join(os.path.dirname(__file__), "..", "user", "memorize")
+        self.memory_dir = os.path.join(user_root, "memorize")
         self.active_chat_file = os.path.join(self.memory_dir, "active_chat.json")
+        self._executor = None  # optional shared ThreadPoolExecutor
         os.makedirs(self.memory_dir, exist_ok=True)
         self._load_active_chat()
         self._init_client()
+
+    def set_executor(self, executor):
+        """Use a shared thread pool for archive summarization."""
+        self._executor = executor
 
     def _init_client(self):
         """Try to initialize the OpenAI-compatible client."""
@@ -192,10 +200,17 @@ class MikuLLM:
             print("LLM: No API key configured. Using local fallback bank.")
 
     def reconfigure(self, base_url: str, api_key: str, model: str):
-        """Hot-swap the LLM backend without restarting the server."""
-        self.base_url = base_url or self.base_url
-        self.api_key  = api_key  or self.api_key
-        self.model    = model    or self.model
+        """Hot-swap the LLM backend without restarting the server.
+
+        Empty strings intentionally clear the corresponding field so a failed
+        key decrypt / user reset does not keep a stale secret.
+        """
+        if base_url is not None:
+            self.base_url = base_url
+        if api_key is not None:
+            self.api_key = api_key
+        if model is not None:
+            self.model = model
         self._init_client()
 
     # ── Memory management ─────────────────────────────────────────────────────
@@ -274,7 +289,6 @@ class MikuLLM:
         if not archives:
             return
             
-        import threading
         def task():
             import json
             for arch in archives:
@@ -283,17 +297,17 @@ class MikuLLM:
                     with open(arch_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         history = data.get('history', []) if isinstance(data, dict) else data
-                        
+
                     if not history:
                         os.remove(arch_path)
                         continue
-                        
+
                     print(f"LLM: Summarizing archive {arch} into long-term memory...")
                     prompt = "请以客观简练的语言，总结Miku与用户的以下对话核心内容，提炼出关键信息和情感状态，作为未来的记忆：\n\n"
                     for msg in history:
                         role = "用户" if msg.get('role') == 'user' else "Miku"
                         prompt += f"{role}: {msg.get('content')}\n"
-                        
+
                     resp = self.client.chat.completions.create(
                         model=self.model,
                         messages=[{"role": "user", "content": prompt}],
@@ -301,20 +315,24 @@ class MikuLLM:
                         timeout=30.0
                     )
                     summary = resp.choices[0].message.content.strip()
-                    
+
                     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
                     filename = os.path.join(self.memory_dir, f"{date_str}memorize.md")
-                    
+
                     mode = 'a' if os.path.exists(filename) else 'w'
                     with open(filename, mode, encoding='utf-8') as f:
                         f.write(f"\n\n{summary}" if mode == 'a' else summary)
-                        
+
                     print(f"LLM: Saved memory to {filename}")
                     os.remove(arch_path)
                 except Exception as e:
                     print(f"LLM: Failed to summarize {arch}: {e}")
-                    
-        threading.Thread(target=task, daemon=True).start()
+
+        if self._executor is not None:
+            self._executor.submit(task)
+        else:
+            import threading
+            threading.Thread(target=task, daemon=True).start()
 
     # ── Public methods ────────────────────────────────────────────────────────
 
@@ -427,7 +445,7 @@ class MikuLLM:
                 model=self.model,
                 messages=messages,
                 max_tokens=500,
-                timeout=8.0
+                timeout=20.0
             )
             reply = resp.choices[0].message.content.strip()
             

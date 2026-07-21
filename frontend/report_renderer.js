@@ -19,7 +19,8 @@ const emotionEmoji = {
   'anger':   '😠',
   'fear':    '😨',
   'disgust': '🤢',
-  'surprise':'😲'
+  'surprise':'😲',
+  'contempt':'😒'
 };
 
 // Apply translations on load

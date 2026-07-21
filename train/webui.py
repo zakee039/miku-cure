@@ -177,4 +177,5 @@ if os.path.exists(dist_dir):
     app.mount("/", StaticFiles(directory=dist_dir, html=True), name="static")
 
 if __name__ == "__main__":
-    uvicorn.run("webui:app", host="0.0.0.0", port=8000, reload=True)
+    # Bind localhost by default — training WebUI should not be LAN-exposed
+    uvicorn.run("webui:app", host="127.0.0.1", port=8000, reload=True)

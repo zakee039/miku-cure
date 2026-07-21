@@ -1,13 +1,22 @@
-opencv-python
-mediapipe
-deepface
-websockets
-openai
-numpy
-pandas
-matplotlib
-scikit-learn
-python-dotenv
-torchvision
-fastapi
-uvicorn
+# Core runtime — pin for reproducible installs (Python 3.10–3.13)
+opencv-python>=4.8.0,<5.0.0
+# MediaPipe 0.10.31+ uses Tasks API only (solutions.* removed).
+# Detector auto-downloads BlazeFace model on first run.
+mediapipe>=0.10.14,<0.11.0
+numpy>=1.24.0,<3.0.0
+websockets>=12.0,<14.0
+openai>=1.30.0,<2.0.0
+python-dotenv>=1.0.0,<2.0.0
+
+# Optional training / analysis helpers
+pandas>=2.0.0,<3.0.0
+matplotlib>=3.7.0,<4.0.0
+scikit-learn>=1.3.0,<2.0.0
+
+# Training WebUI extras
+fastapi>=0.110.0,<1.0.0
+uvicorn>=0.27.0,<1.0.0
+psutil>=5.9.0,<7.0.0
+
+# Install torch/torchvision separately (CPU or CUDA) via install.bat
+# torch / torchvision

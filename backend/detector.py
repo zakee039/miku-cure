@@ -3,7 +3,6 @@ import cv2
 import numpy as np
 import collections
 
-# Try to import torch and mediapipe
 try:
     import torch
     import torch.nn as nn
@@ -13,13 +12,19 @@ except ImportError:
 
 try:
     import mediapipe as mp
-    try:
-        from mediapipe.solutions import face_detection as mp_face_detection
-    except (ImportError, ModuleNotFoundError):
-        from mediapipe.python.solutions import face_detection as mp_face_detection
 except (ImportError, ModuleNotFoundError):
     mp = None
-    mp_face_detection = None
+
+# Legacy solutions API (removed in newer mediapipe builds)
+mp_face_detection_legacy = None
+if mp is not None:
+    try:
+        from mediapipe.solutions import face_detection as mp_face_detection_legacy
+    except (ImportError, ModuleNotFoundError):
+        try:
+            from mediapipe.python.solutions import face_detection as mp_face_detection_legacy
+        except (ImportError, ModuleNotFoundError):
+            mp_face_detection_legacy = None
 
 try:
     from models_def import EmotionCNN, GrayscaleMobileNetV2, RNNAttentionNetwork
@@ -28,48 +33,150 @@ except ImportError:
     EmotionCNN = GrayscaleMobileNetV2 = RNNAttentionNetwork = None
     inject_lora = None
 
+# MediaPipe Tasks FaceDetector model (auto-downloaded on first use)
+_BLAZE_FACE_URL = (
+    "https://storage.googleapis.com/mediapipe-models/"
+    "face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
+)
+_BLAZE_FACE_NAME = "blaze_face_short_range.tflite"
+
+
+def _ascii_model_cache_dir():
+    """
+    MediaPipe's C++ loader on Windows often fails on non-ASCII paths
+    (e.g. project folders with Chinese names). Prefer LOCALAPPDATA.
+    """
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('TEMP') or os.path.expanduser('~')
+    # Guard: if still non-ascii, fall back to temp short path
+    try:
+        base.encode('ascii')
+    except UnicodeEncodeError:
+        base = os.environ.get('TEMP') or r'C:\Temp'
+    path = os.path.join(base, 'miku-cure', 'models')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _ensure_blaze_face_model():
+    """
+    Return a model path that MediaPipe can open.
+    Seed from backend/models/ if present; always serve from ASCII cache.
+    """
+    import shutil
+    cache_path = os.path.join(_ascii_model_cache_dir(), _BLAZE_FACE_NAME)
+    project_path = os.path.join(os.path.dirname(__file__), "models", _BLAZE_FACE_NAME)
+
+    def _ok(p):
+        return os.path.exists(p) and os.path.getsize(p) > 10_000
+
+    if _ok(cache_path):
+        return cache_path
+
+    # Copy from project tree if available (may contain non-ascii parent dirs)
+    if _ok(project_path):
+        try:
+            shutil.copy2(project_path, cache_path)
+            if _ok(cache_path):
+                print(f"Detector: Copied BlazeFace model to ASCII cache: {cache_path}")
+                return cache_path
+        except Exception as e:
+            print(f"Detector: Failed to copy model to cache: {e}")
+
+    print(f"Detector: Downloading MediaPipe BlazeFace model → {cache_path}")
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(_BLAZE_FACE_URL, cache_path)
+        # Also keep a project-local copy for offline packaging when path allows
+        try:
+            os.makedirs(os.path.dirname(project_path), exist_ok=True)
+            if not _ok(project_path):
+                shutil.copy2(cache_path, project_path)
+        except Exception:
+            pass
+        print("Detector: BlazeFace model downloaded.")
+        return cache_path
+    except Exception as e:
+        print(f"Detector: Failed to download BlazeFace model: {e}")
+        return None
+
+
+def _create_mp_tasks_face_detector():
+    """MediaPipe 0.10.14+ Tasks API (solutions.* removed in some builds)."""
+    if mp is None:
+        return None
+    try:
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision as mp_vision
+    except (ImportError, ModuleNotFoundError) as e:
+        print(f"Detector: MediaPipe Tasks not available: {e}")
+        return None
+
+    model_path = _ensure_blaze_face_model()
+    if not model_path:
+        return None
+    try:
+        options = mp_vision.FaceDetectorOptions(
+            base_options=mp_python.BaseOptions(model_asset_path=model_path),
+            running_mode=mp_vision.RunningMode.IMAGE,
+            min_detection_confidence=0.5,
+        )
+        detector = mp_vision.FaceDetector.create_from_options(options)
+        print("Detector: MediaPipe Tasks FaceDetector initialized.")
+        return detector
+    except Exception as e:
+        print(f"Detector: MediaPipe Tasks FaceDetector init failed: {e}")
+        return None
+
+def _select_device():
+    """Lightweight CUDA probe — avoids constructing a full EmotionCNN."""
+    if not torch or not torch.cuda or not torch.cuda.is_available():
+        print("Detector: CUDA not available. Using CPU device.")
+        return torch.device('cpu') if torch else None
+    try:
+        t = torch.zeros(1, device='cuda')
+        _ = t + 1
+        del t
+        if hasattr(torch.cuda, 'empty_cache'):
+            torch.cuda.empty_cache()
+        print("Detector: CUDA is available and working. Using GPU device.")
+        return torch.device('cuda')
+    except Exception as e:
+        print(f"Detector: CUDA probe failed: {e}. Falling back to CPU.")
+        return torch.device('cpu')
+
+
 class EmotionDetector:
     EMOTIONS = ['neutral', 'happy', 'surprise', 'sadness', 'anger', 'disgust', 'fear', 'contempt']
 
-    def __init__(self, model_type='cnn', model_path=None):
+    def __init__(self, model_type='best_rnn_attention.pth', model_path=None, smooth_window=1, conf_threshold=0.0):
         self.model_type = model_type
-        # Safe device selection to prevent CUDA errors on unsupported GPUs (like RTX 5060 Blackwell)
-        device_str = 'cpu'
-        if torch and torch.cuda and torch.cuda.is_available():
-            try:
-                # Test if GPU works for EmotionCNN forward pass
-                test_device = torch.device('cuda')
-                test_model = EmotionCNN().to(test_device)
-                test_input = torch.zeros(1, 1, 48, 48).to(test_device)
-                with torch.no_grad():
-                    _ = test_model(test_input)
-                device_str = 'cuda'
-                print("Detector: CUDA is available and working. Using GPU device.")
-            except Exception as e:
-                print(f"Detector: CUDA is available but test forward pass failed: {e}. Falling back to CPU.")
-                device_str = 'cpu'
-        else:
-            print("Detector: CUDA not available. Using CPU device.")
-            
-        self.device = torch.device(device_str)
+        self.device = _select_device()
         self.model = None
-        
-        # Initialize MediaPipe face detector
-        self.mp_face = None
-        if mp_face_detection:
-            try:
-                self.mp_face = mp_face_detection.FaceDetection(
-                    min_detection_confidence=0.5,
-                    model_selection=0
-                )
-                print("Detector: MediaPipe face detection initialized successfully.")
-            except Exception as e:
-                print(f"Detector: MediaPipe initialization failed: {e}")
-                self.mp_face = None
-        else:
-            print("Detector: MediaPipe is not installed or import failed. Face detection will fallback to raw OpenCV or whole frame.")
+        # smooth_window kept for API compat; smoothing is disabled (real-time raw labels)
+        self.smooth_window = max(1, smooth_window)
+        self.conf_threshold = conf_threshold
+        self._emotion_history = collections.deque(maxlen=self.smooth_window)
+        self._last_stable = ('neutral', 0.0)
 
-        # Initialize Haar Cascade face detector as fallback (with Windows unicode path workaround)
+        # Face detectors: prefer Tasks API → legacy solutions → Haar
+        self.mp_tasks_face = _create_mp_tasks_face_detector()
+        self.mp_face = None  # legacy solutions FaceDetection
+        if self.mp_tasks_face is None and mp_face_detection_legacy is not None:
+            try:
+                self.mp_face = mp_face_detection_legacy.FaceDetection(
+                    min_detection_confidence=0.5,
+                    model_selection=0,
+                )
+                print("Detector: MediaPipe legacy solutions FaceDetection initialized.")
+            except Exception as e:
+                print(f"Detector: MediaPipe legacy init failed: {e}")
+                self.mp_face = None
+        if self.mp_tasks_face is None and self.mp_face is None:
+            if mp is None:
+                print("Detector: MediaPipe not installed — using Haar fallback.")
+            else:
+                print("Detector: MediaPipe face detector unavailable — using Haar fallback.")
+
         self.face_cascade = None
         try:
             import shutil
@@ -81,116 +188,135 @@ class EmotionDetector:
                 xml_dst = os.path.join(temp_dir, xml_name)
                 shutil.copy(xml_src, xml_dst)
                 self.face_cascade = cv2.CascadeClassifier(xml_dst)
-                if not self.face_cascade.empty():
-                    print(f"Detector: OpenCV Haar Cascade loaded successfully from temp: {xml_dst}")
-                else:
+                if self.face_cascade.empty():
                     self.face_cascade = None
+                else:
+                    print(f"Detector: OpenCV Haar Cascade loaded from temp: {xml_dst}")
             else:
                 print("Detector: Haar Cascade XML source not found.")
         except Exception as e:
             print(f"Detector: Failed to initialize Haar Cascade fallback: {e}")
 
-        # Attempt to load PyTorch custom model
-        if torch and model_type not in ['deepface', 'mock'] and model_type:
-            # Default path if none provided
-            if not model_path:
-                if model_type == 'cnn':
-                    model_path = os.path.join(os.path.dirname(__file__), "models", "best_cnn.pth")
-                else:
-                    model_path = os.path.join(os.path.dirname(__file__), "models", model_type)
-                
-            if os.path.exists(model_path):
-                try:
-                    filename = os.path.basename(model_path).lower()
-                    if 'mobilenet' in filename:
-                        self.model = GrayscaleMobileNetV2().to(self.device)
-                    elif 'rnn' in filename:
-                        self.model = RNNAttentionNetwork().to(self.device)
-                    else:
-                        self.model = EmotionCNN().to(self.device)
+        if torch and model_type not in ['mock'] and model_type:
+            self._load_model(model_type, model_path)
 
-                    self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-                    # Apply LoRA if exists
-                    lora_path = os.path.join(os.path.dirname(__file__), "..", "user", "lora", "lora_weights.pth")
-                    if inject_lora and os.path.exists(lora_path):
-                        self.model = inject_lora(self.model).to(self.device)
-                        self.model.load_state_dict(torch.load(lora_path, map_location=self.device), strict=False)
-                        print(f"Detector: Loaded LoRA weights from {lora_path}")
-                    self.model.eval()
-                    print(f"Detector: Loaded PyTorch model weights from {model_path} successfully on {self.device}")
-                except Exception as e:
-                    print(f"Detector: Failed to load PyTorch state dict: {e}")
-                    self.model = None
-            else:
-                print(f"Detector: Model weights not found at {model_path}. Running in Demo/Fallback mode.")
-                self.model = None
+    def _resolve_model_path(self, model_type, model_path=None):
+        if model_path:
+            return model_path
+        models_dir = os.path.join(os.path.dirname(__file__), "models")
+        if model_type == 'cnn':
+            return os.path.join(models_dir, "best_cnn.pth")
+        # Allow full filename (e.g. best_rnn_attention.pth) or bare type
+        candidate = os.path.join(models_dir, model_type)
+        if os.path.exists(candidate):
+            return candidate
+        # Common aliases
+        aliases = {
+            'rnn': 'best_rnn_attention.pth',
+            'rnn_attention': 'best_rnn_attention.pth',
+            'best_rnn': 'best_rnn_attention.pth',
+            'mobilenet': 'best_mobilenet_v2.pth',
+            'mobilenet_v2': 'best_mobilenet_v2.pth',
+        }
+        if model_type in aliases:
+            return os.path.join(models_dir, aliases[model_type])
+        return candidate
 
-    def switch_model(self, model_type):
-        """
-        Dynamically switch model type at runtime.
-        """
-        if self.model_type == model_type:
+    def _build_architecture(self, model_path):
+        filename = os.path.basename(model_path).lower()
+        if 'mobilenet' in filename:
+            return GrayscaleMobileNetV2(pretrained=False).to(self.device)
+        if 'rnn' in filename:
+            return RNNAttentionNetwork().to(self.device)
+        return EmotionCNN().to(self.device)
+
+    def _apply_lora(self):
+        user_root = os.environ.get('MIKU_USER_DIR') or os.path.join(
+            os.path.dirname(__file__), "..", "user"
+        )
+        lora_path = os.path.join(user_root, "lora", "lora_weights.pth")
+        if inject_lora and os.path.exists(lora_path):
+            self.model = inject_lora(self.model).to(self.device)
+            try:
+                state = torch.load(lora_path, map_location=self.device, weights_only=True)
+            except TypeError:
+                state = torch.load(lora_path, map_location=self.device)
+            self.model.load_state_dict(state, strict=False)
+            print(f"Detector: Loaded LoRA weights from {lora_path}")
+
+    def _load_model(self, model_type, model_path=None):
+        """Shared model load path for init and hot-switch."""
+        if not torch:
+            self.model = None
             return
-            
-        print(f"Detector: Switching model type from '{self.model_type}' to '{model_type}'")
-        self.model_type = model_type
-        
-        # Load weights if custom PyTorch model is selected
-        if torch and model_type not in ['deepface', 'mock']:
-            model_path = os.path.join(os.path.dirname(__file__), "models", model_type)
-            # fallback to cnn logic if strictly 'cnn'
-            if model_type == 'cnn':
-                 model_path = os.path.join(os.path.dirname(__file__), "models", "best_cnn.pth")
-
-            if os.path.exists(model_path):
-                try:
-                    filename = os.path.basename(model_path).lower()
-                    if 'mobilenet' in filename:
-                        self.model = GrayscaleMobileNetV2().to(self.device)
-                    elif 'rnn' in filename:
-                        self.model = RNNAttentionNetwork().to(self.device)
-                    else:
-                        self.model = EmotionCNN().to(self.device)
-
-                    self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-                    # Apply LoRA if exists
-                    lora_path = os.path.join(os.path.dirname(__file__), "..", "user", "lora", "lora_weights.pth")
-                    if inject_lora and os.path.exists(lora_path):
-                        self.model = inject_lora(self.model).to(self.device)
-                        self.model.load_state_dict(torch.load(lora_path, map_location=self.device), strict=False)
-                        print(f"Detector: Loaded LoRA weights from {lora_path}")
-                    self.model.eval()
-                    print(f"Detector: Loaded PyTorch weights successfully on {self.device}")
-                except Exception as e:
-                    print(f"Detector: Failed to load PyTorch state dict: {e}")
-                    self.model = None
-            else:
-                print(f"Detector: PyTorch weights not found at {model_path}. Running in fallback mode.")
+        path = self._resolve_model_path(model_type, model_path)
+        if not os.path.exists(path):
+            print(f"Detector: Model weights not found at {path}. Running in fallback mode.")
+            self.model = None
+            return
+        try:
+            self.model = self._build_architecture(path)
+            state = torch.load(path, map_location=self.device, weights_only=True)
+            self.model.load_state_dict(state)
+            self._apply_lora()
+            self.model.eval()
+            print(f"Detector: Loaded PyTorch model from {path} on {self.device}")
+        except TypeError:
+            # Older torch without weights_only
+            try:
+                self.model = self._build_architecture(path)
+                state = torch.load(path, map_location=self.device)
+                self.model.load_state_dict(state)
+                self._apply_lora()
+                self.model.eval()
+                print(f"Detector: Loaded PyTorch model from {path} on {self.device}")
+            except Exception as e:
+                print(f"Detector: Failed to load PyTorch state dict: {e}")
                 self.model = None
+        except Exception as e:
+            print(f"Detector: Failed to load PyTorch state dict: {e}")
+            self.model = None
+
+    def switch_model(self, model_type, force=False):
+        """
+        Hot-swap inference engine. Skips reload when type unchanged unless force=True
+        (used after LoRA delete / retrain).
+        """
+        if (
+            not force
+            and self.model_type == model_type
+            and model_type not in ('mock',)
+            and self.model is not None
+        ):
+            return
+
+        print(f"Detector: Switching model type from '{self.model_type}' to '{model_type}' (force={force})")
+        self.model_type = model_type
+        self._emotion_history.clear()
+
+        if torch and model_type not in ['mock']:
+            self._load_model(model_type)
         else:
-            # Clear loaded model if switching to mock/deepface
             self.model = None
 
     def detect_emotion(self, frame):
         """
-        Takes raw BGR image frame from camera.
+        Real-time raw prediction (no temporal smoothing).
         Returns:
-            smoothed_emotion: string (e.g. 'neutral')
-            confidence: float (0 to 1)
-            face_coords: tuple (x, y, w, h) of detected face in raw coordinates, or None
+            emotion: string
+            confidence: float
+            face_coords: (x, y, w, h) or None
         """
         if frame is None:
             return 'no_face', 0.0, None
+
         face_img, face_coords = self.extract_face(frame)
-        
         if face_img is None:
             return 'no_face', 0.0, None
-        
-        # 2. Run model inference if loaded
+
         if self.model and torch:
             try:
                 tensor_face = self.preprocess_to_tensor(face_img)
-                
                 with torch.no_grad():
                     outputs = self.model(tensor_face)
                     probs = F.softmax(outputs, dim=1)
@@ -201,49 +327,64 @@ class EmotionDetector:
                 print(f"Detector: Model forward pass failed: {e}")
                 detected_emotion, conf_val = self._fallback_inference(face_img)
         else:
-            # Demo Fallback
             detected_emotion, conf_val = self._fallback_inference(face_img)
 
-        if detected_emotion == 'sadness' and conf_val < 0.70:
-            detected_emotion = 'neutral'
-
         return detected_emotion, conf_val, face_coords
+
+    def _crop_padded(self, frame, x, y, width, height):
+        h, w = frame.shape[:2]
+        pad_x = int(width * 0.1)
+        pad_y = int(height * 0.1)
+        x_start = max(0, int(x) - pad_x)
+        y_start = max(0, int(y) - pad_y)
+        x_end = min(w, int(x + width) + pad_x)
+        y_end = min(h, int(y + height) + pad_y)
+        if x_end <= x_start or y_end <= y_start:
+            return None, None
+        coords = (x_start, y_start, x_end - x_start, y_end - y_start)
+        return frame[y_start:y_end, x_start:x_end], coords
 
     def extract_face(self, frame):
         if frame is None:
             return None, None
-        h, w, _ = frame.shape
+        h, w = frame.shape[:2]
         face_img = None
         face_coords = None
 
-        # 1. Detect face using MediaPipe
-        if self.mp_face:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = self.mp_face.process(frame_rgb)
-            if results.detections:
-                # Take the first detected face
-                detection = results.detections[0]
-                bbox = detection.location_data.relative_bounding_box
-                
-                # Convert relative coordinates to pixels
-                x = int(bbox.xmin * w)
-                y = int(bbox.ymin * h)
-                width = int(bbox.width * w)
-                height = int(bbox.height * h)
-                
-                # Add minor padding
-                pad_x = int(width * 0.1)
-                pad_y = int(height * 0.1)
-                
-                x_start = max(0, x - pad_x)
-                y_start = max(0, y - pad_y)
-                x_end = min(w, x + width + pad_x)
-                y_end = min(h, y + height + pad_y)
-                
-                face_coords = (x_start, y_start, x_end - x_start, y_end - y_start)
-                face_img = frame[y_start:y_end, x_start:x_end]
-        
-        # Fallback to OpenCV Haar Cascades if MediaPipe is missing or failed to detect
+        # 1) MediaPipe Tasks API
+        if self.mp_tasks_face is not None and mp is not None:
+            try:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # Contiguous buffer required by mp.Image
+                frame_rgb = np.ascontiguousarray(frame_rgb)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+                result = self.mp_tasks_face.detect(mp_image)
+                if result and result.detections:
+                    det = result.detections[0]
+                    box = det.bounding_box  # absolute pixel coords
+                    face_img, face_coords = self._crop_padded(
+                        frame, box.origin_x, box.origin_y, box.width, box.height
+                    )
+            except Exception as e:
+                print(f"Detector: MediaPipe Tasks detect failed: {e}")
+
+        # 2) Legacy solutions API
+        if (face_img is None or face_img.size == 0) and self.mp_face is not None:
+            try:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = self.mp_face.process(frame_rgb)
+                if results.detections:
+                    detection = results.detections[0]
+                    bbox = detection.location_data.relative_bounding_box
+                    x = int(bbox.xmin * w)
+                    y = int(bbox.ymin * h)
+                    width = int(bbox.width * w)
+                    height = int(bbox.height * h)
+                    face_img, face_coords = self._crop_padded(frame, x, y, width, height)
+            except Exception as e:
+                print(f"Detector: MediaPipe legacy detect failed: {e}")
+
+        # 3) Haar cascade
         if face_img is None or face_img.size == 0:
             if self.face_cascade is not None:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -251,9 +392,8 @@ class EmotionDetector:
                 if len(faces) > 0:
                     fx, fy, fw, fh = faces[0]
                     face_coords = (int(fx), int(fy), int(fw), int(fh))
-                    face_img = frame[int(fy):int(fy+fh), int(fx):int(fx+fw)]
+                    face_img = frame[int(fy):int(fy + fh), int(fx):int(fx + fw)]
 
-            # If no face is detected by any method, return None
             if face_img is None or face_img.size == 0:
                 return None, None
         return face_img, face_coords
@@ -266,47 +406,21 @@ class EmotionDetector:
         return tensor_face.to(self.device)
 
     def _fallback_inference(self, face_img):
-        """
-        DeepFace fallback or mock inference if custom weights are missing.
-        """
-        if self.model_type == 'deepface':
-            try:
-                from deepface import DeepFace
-                import logging
-                logging.getLogger("tensorflow").setLevel(logging.ERROR)
-                
-                res = DeepFace.analyze(face_img, actions=['emotion'], enforce_detection=False, silent=True)
-                if isinstance(res, list):
-                    res = res[0]
-                dom_emotion = res.get('dominant_emotion', 'neutral')
-                conf = res.get('emotion', {}).get(dom_emotion, 0.0) / 100.0
-                return dom_emotion, conf
-            except Exception as e:
-                print(f"DeepFace fallback failed: {e}")
-                # Fall through to mock if it fails
-
-        # Fallback to simulated emotion detection based on brightness/mockup
+        """Brightness mock when no PyTorch weights are loaded."""
         gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
         mean_brightness = np.mean(gray)
-        # Simulated variance
         if mean_brightness > 135:
             return 'happy', 0.85
-        elif mean_brightness < 90:
+        if mean_brightness < 90:
             return 'sadness', 0.75
-        else:
-            # Add some randomness for the mock to make it feel "active"
-            import random
-            rand_val = random.random()
-            if rand_val > 0.8:
-                return 'surprise', 0.60
-            elif rand_val > 0.6:
-                return 'neutral', 0.90
-            else:
-                return 'neutral', 0.85
+        import random
+        rand_val = random.random()
+        if rand_val > 0.8:
+            return 'surprise', 0.60
+        return 'neutral', 0.85
+
 
 if __name__ == '__main__':
-    # Test Detector
-    import time
     detector = EmotionDetector()
     dummy_frame = np.ones((480, 640, 3), dtype=np.uint8) * 128
     emotion, conf, bbox = detector.detect_emotion(dummy_frame)

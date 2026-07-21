@@ -1,2 +1,4 @@
-// Preload script if needed. Currently exposing nothing, just a placeholder.
-console.log('Preload script loaded successfully.');
+// Preload — security helpers available to renderer when needed.
+// Renderers currently use nodeIntegration for local media paths; secrets
+// (API keys) are encrypted and only accessible via main-process IPC.
+console.log('Preload: Miku Cure secure helpers loaded.');

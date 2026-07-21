@@ -1,5 +1,6 @@
 import os
 import datetime
+import time
 
 # ── Language configuration for log file names and content ────────────────────
 LANG_CONFIG = {
@@ -29,6 +30,7 @@ LANG_CONFIG = {
             'fear':     '😨 焦虑',
             'disgust':  '🤢 厌恶',
             'surprise': '😲 惊讶',
+            'contempt': '😒 轻蔑',
         }
     },
     'ja': {
@@ -57,6 +59,7 @@ LANG_CONFIG = {
             'fear':     '😨 恐怖',
             'disgust':  '🤢 嫌悪',
             'surprise': '😲 驚き',
+            'contempt': '😒 軽蔑',
         }
     },
     'en': {
@@ -85,23 +88,29 @@ LANG_CONFIG = {
             'fear':     '😨 Fearful',
             'disgust':  '🤢 Disgusted',
             'surprise': '😲 Surprised',
+            'contempt': '😒 Contempt',
         }
     }
 }
 
+# Emotions that must never enter focus statistics
+SKIP_EMOTIONS = frozenset({'no_face', '', None})
+
 
 class LogEntry:
     def __init__(self, timestamp, emotion, confidence, duration=1):
-        self.timestamp  = timestamp   # "HH:MM:SS"
-        self.emotion    = emotion     # e.g. "happy"
-        self.confidence = confidence  # float
-        self.duration   = duration    # seconds
+        self.timestamp  = timestamp
+        self.emotion    = emotion
+        self.confidence = confidence
+        self.duration   = duration
 
 
 class EmotionLogger:
-    def __init__(self, log_dir=None):
+    def __init__(self, log_dir=None, flush_interval_sec=15.0):
         if log_dir is None:
-            log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
+            # Packaged apps may set MIKU_USER_DIR; logs still live under project/logs by default
+            root = os.environ.get('MIKU_RESOURCES') or os.path.dirname(os.path.dirname(__file__))
+            log_dir = os.path.join(root, 'logs')
         self.log_dir = log_dir
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
@@ -112,6 +121,9 @@ class EmotionLogger:
         self.session_duration_minutes = 30
         self.current_session_header   = ""
         self._lang                    = 'zh'
+        self._dirty                   = False
+        self._last_flush              = 0.0
+        self.flush_interval_sec       = flush_interval_sec
 
     @property
     def lang(self):
@@ -124,13 +136,13 @@ class EmotionLogger:
     def _cfg(self) -> dict:
         return LANG_CONFIG.get(self._lang, LANG_CONFIG['zh'])
 
-    # ── Session control ───────────────────────────────────────────────────────
-
     def start_session(self, duration_minutes: int = 30):
         cfg = self._cfg()
         self.current_session_entries  = []
         self.session_duration_minutes = duration_minutes
         self.session_start_time       = datetime.datetime.now()
+        self._dirty = False
+        self._last_flush = time.time()
 
         date_str = self.session_start_time.strftime("%Y%m%d")
         daily_dir = os.path.join(self.log_dir, date_str)
@@ -159,6 +171,9 @@ class EmotionLogger:
     def log_emotion(self, emotion: str, confidence: float):
         if self.session_start_time is None:
             return
+        if emotion in SKIP_EMOTIONS:
+            return
+
         now_str = datetime.datetime.now().strftime("%H:%M:%S")
         if not self.current_session_entries:
             self.current_session_entries.append(LogEntry(now_str, emotion, confidence))
@@ -169,11 +184,25 @@ class EmotionLogger:
                 last.duration  += 1
             else:
                 self.current_session_entries.append(LogEntry(now_str, emotion, confidence))
-        self._write_file()
 
-    def end_session(self, completed: bool = True, miku_comment: str = ""):
+        self._dirty = True
+        # Throttled flush — avoid rewriting the file every second
+        if time.time() - self._last_flush >= self.flush_interval_sec:
+            self._write_file()
+
+    def end_session(
+        self,
+        completed: bool = True,
+        miku_comment: str = "",
+        paused_seconds: int = 0,
+        min_save_seconds: int = 0,
+    ):
         if self.session_start_time is None:
             return {}, 0
+
+        # Always flush pending rows before summary
+        if self._dirty:
+            self._write_file()
 
         cfg = self._cfg()
         end_time         = datetime.datetime.now()
@@ -181,6 +210,8 @@ class EmotionLogger:
 
         emotion_durations: dict = {}
         for entry in self.current_session_entries:
+            if entry.emotion in SKIP_EMOTIONS:
+                continue
             emotion_durations[entry.emotion] = emotion_durations.get(entry.emotion, 0) + entry.duration
 
         total_seconds = sum(emotion_durations.values()) or 1
@@ -189,9 +220,26 @@ class EmotionLogger:
 
         actual_minutes = duration_seconds // 60
 
-        # Build summary block
+        # Drop accidental ultra-short sessions (no useful report)
+        if min_save_seconds and duration_seconds < min_save_seconds:
+            try:
+                if self.log_file and os.path.exists(self.log_file):
+                    os.remove(self.log_file)
+                    print(f"Logger: Discarded short session ({duration_seconds}s < {min_save_seconds}s)")
+            except Exception as e:
+                print(f"Logger: Failed to discard short session: {e}")
+            self.session_start_time = None
+            self.current_session_entries = []
+            self._dirty = False
+            self.log_file = None
+            return stats, actual_minutes
+
         summary_md  = f"\n## {cfg['summary_heading']}\n"
-        summary_md += f"**{cfg['session_actual']}: {actual_minutes} {cfg['session_unit']}**\n\n"
+        summary_md += f"**{cfg['session_actual']}: {actual_minutes} {cfg['session_unit']}**\n"
+        if paused_seconds > 0:
+            pm, ps = divmod(int(paused_seconds), 60)
+            summary_md += f"**Paused: {pm}{cfg['dur_min']}{ps}{cfg['dur_sec']}**\n"
+        summary_md += "\n"
         summary_md += f"| {cfg['col_emotion2']} | {cfg['col_percent']} | {cfg['col_total_dur']} |\n"
         summary_md += "| :--- | :--- | :--- |\n"
         for emotion, seconds in emotion_durations.items():
@@ -208,7 +256,6 @@ class EmotionLogger:
                 with open(self.log_file, 'a', encoding='utf-8') as f:
                     f.write(summary_md)
 
-                # Rename to reflect actual duration
                 date_str  = self.session_start_time.strftime("%Y%m%d")
                 time_str  = self.session_start_time.strftime("%H%M")
                 new_name  = (
@@ -225,9 +272,8 @@ class EmotionLogger:
 
         self.session_start_time      = None
         self.current_session_entries = []
+        self._dirty = False
         return stats, duration_seconds // 60
-
-    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _format_duration(self, seconds: int) -> str:
         m, s = divmod(seconds, 60)
@@ -248,19 +294,21 @@ class EmotionLogger:
         try:
             with open(self.log_file, 'w', encoding='utf-8') as f:
                 f.write(content)
+            self._dirty = False
+            self._last_flush = time.time()
         except Exception as e:
             print(f"Logger: Write error — {e}")
 
 
 if __name__ == '__main__':
-    import time
     for lang in ['zh', 'ja', 'en']:
         print(f"\n=== Testing lang={lang} ===")
         logger = EmotionLogger()
         logger.lang = lang
         logger.start_session(duration_minutes=1)
         logger.log_emotion('neutral', 0.9)
-        time.sleep(0.1)
+        logger.log_emotion('no_face', 0.0)  # should be skipped
         logger.log_emotion('happy', 0.85)
+        logger.log_emotion('contempt', 0.7)
         stats, mins = logger.end_session(completed=True, miku_comment="Test!")
         print("Stats:", stats, "Duration:", mins)

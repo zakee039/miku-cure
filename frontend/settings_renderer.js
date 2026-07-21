@@ -1,45 +1,62 @@
 const { ipcRenderer } = require('electron');
 const { t, getCurrentLang, applyI18n } = require('./i18n');
-const fs = require('fs');
-const path = require('path');
-
-// ── LocalStorage key for API list ─────────────────────────────────────────────
-const userDir = path.join(__dirname, '..', 'user');
-const keysDir = path.join(userDir, 'keys');
-const apiJsonPath = path.join(keysDir, 'api.json');
 
 const LS_SEL_API   = 'miku-sel-api';    // selected api id
 const LS_SEL_MODEL = 'miku-sel-model';  // selected model string
 
-function loadApis() {
+// In-memory cache of decrypted APIs (keys never written from renderer disk APIs)
+let _apisCache = null;
+
+async function loadApis() {
   try {
-    if (!fs.existsSync(keysDir)) fs.mkdirSync(keysDir, { recursive: true });
-    if (fs.existsSync(apiJsonPath)) {
-      return JSON.parse(fs.readFileSync(apiJsonPath, 'utf8')) || [];
-    }
-  } catch (e) { console.error('Failed to load api.json', e); }
-  return [];
+    _apisCache = await ipcRenderer.invoke('apis-load') || [];
+    return _apisCache;
+  } catch (e) {
+    console.error('Failed to load apis via IPC', e);
+    return _apisCache || [];
+  }
 }
-function saveApis(list) {
+
+function loadApisSync() {
+  // Prefer cache; if empty, block via sendSync is not available for invoke.
+  // Callers that need sync should use cached data after first async load.
+  return _apisCache || [];
+}
+
+async function saveApis(list) {
   try {
-    if (!fs.existsSync(keysDir)) fs.mkdirSync(keysDir, { recursive: true });
-    fs.writeFileSync(apiJsonPath, JSON.stringify(list, null, 2), 'utf8');
-  } catch (e) { console.error('Failed to save api.json', e); }
+    _apisCache = list || [];
+    await ipcRenderer.invoke('apis-save', _apisCache);
+  } catch (e) {
+    console.error('Failed to save apis via IPC', e);
+  }
 }
+
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ── Broadcast current LLM selection to backend (via main process) ─────────────
-function broadcastLlmConfig() {
-  const apis  = loadApis();
-  const selId = ipcRenderer.sendSync('get-config', LS_SEL_API) || '';
-  const model = ipcRenderer.sendSync('get-config', LS_SEL_MODEL) || '';
-  const api   = apis.find(a => a.id === selId);
-  if (api) {
-    ipcRenderer.send('llm-changed', { baseUrl: api.baseUrl, apiKey: api.apiKey, model });
-  } else {
-    ipcRenderer.send('llm-changed', { baseUrl: '', apiKey: '', model: '' }); // revert to .env
+async function broadcastLlmConfig() {
+  try {
+    const cfg = await ipcRenderer.invoke('get-selected-llm');
+    ipcRenderer.send('llm-changed', {
+      baseUrl: cfg.baseUrl || '',
+      apiKey: cfg.apiKey || '',
+      model: cfg.model || '',
+    });
+  } catch (e) {
+    console.error('broadcastLlmConfig failed', e);
+    ipcRenderer.send('llm-changed', { baseUrl: '', apiKey: '', model: '' });
   }
 }
 
@@ -83,68 +100,14 @@ document.addEventListener('DOMContentLoaded', () => {
     ipcRenderer.send('run-train');
   });
 
-  let hasDeepface = false;
-  
-  async function checkDeepfaceStatus() {
-    try {
-      hasDeepface = await ipcRenderer.invoke('check-deepface');
-      const opt = modelSelect.querySelector('option[value="deepface"]');
-      const statusText = document.getElementById('deepface-status-text');
-      const dlRow = document.getElementById('deepface-download-row');
-      
-      if (hasDeepface) {
-        if (opt) opt.disabled = false;
-        statusText.textContent = t('model.deepface.installed');
-        statusText.style.color = '#39c5bb';
-        dlRow.style.display = 'none';
-      } else {
-        if (opt) opt.disabled = true;
-        statusText.textContent = t('model.deepface.not_installed');
-        statusText.style.color = '#ff5f56';
-        dlRow.style.display = 'flex';
-        if (modelSelect.value === 'deepface') {
-          modelSelect.value = 'mock';
-          ipcRenderer.send('set-config', {key: 'miku-model-type', val: 'mock'});
-          ipcRenderer.send('model-changed', 'mock');
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  const btnDownloadDeepface = document.getElementById('btn-download-deepface');
-  const deepfaceProgCont = document.getElementById('deepface-progress-container');
-  const deepfaceProgBar = document.getElementById('deepface-progress-bar');
-  const deepfaceProgText = document.getElementById('deepface-progress-text');
-  const deepfaceSpeedText = document.getElementById('deepface-speed-text');
-
-  btnDownloadDeepface.addEventListener('click', () => {
-    btnDownloadDeepface.style.display = 'none';
-    deepfaceProgCont.style.display = 'flex';
-    ipcRenderer.send('download-deepface');
-  });
-
-  ipcRenderer.on('deepface-download-status', (event, data) => {
-    if (data.type === 'download_progress') {
-      deepfaceProgBar.style.width = data.progress + '%';
-      deepfaceProgText.textContent = data.progress + '%';
-      deepfaceSpeedText.textContent = data.speed || '';
-    } else if (data.type === 'download_complete') {
-      if (data.success) {
-        checkDeepfaceStatus();
-      } else {
-        alert("Download failed: " + data.error);
-        btnDownloadDeepface.style.display = 'block';
-        deepfaceProgCont.style.display = 'none';
-      }
-    }
-  });
-
-  // Dynamically load models from backend
+  // Dynamically load models from backend (.pth only; DeepFace permanently removed)
+  const DEFAULT_MODEL = 'best_rnn_attention.pth';
   ipcRenderer.invoke('get-models').then((models) => {
-    // Custom sort order requested by author
     const customOrder = ['best_rnn_attention.pth', 'best_cnn.pth', 'best_mobilenet_v2.pth'];
+    models = (models || []).filter((m) => {
+      const s = String(m).toLowerCase();
+      return s.endsWith('.pth') && !s.includes('deepface');
+    });
     models.sort((a, b) => {
       let idxA = customOrder.indexOf(a);
       let idxB = customOrder.indexOf(b);
@@ -153,9 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return idxA - idxB;
     });
 
-    modelSelect.innerHTML = ''; // Clear existing hardcoded options
+    modelSelect.innerHTML = '';
 
-    // Add .pth models first
     models.forEach(modelName => {
       const opt = document.createElement('option');
       opt.value = modelName;
@@ -163,35 +125,31 @@ document.addEventListener('DOMContentLoaded', () => {
       modelSelect.appendChild(opt);
     });
 
-    // Add DeepFace
-    const dfOpt = document.createElement('option');
-    dfOpt.value = 'deepface';
-    dfOpt.textContent = 'DeepFace（预训练）';
-    dfOpt.setAttribute('data-i18n-option', 'model.deepface.name');
-    modelSelect.appendChild(dfOpt);
-
-    // Add Mock
     const mockOpt = document.createElement('option');
     mockOpt.value = 'mock';
     mockOpt.textContent = '亮度模拟器';
     mockOpt.setAttribute('data-i18n-option', 'model.mock.name');
     modelSelect.appendChild(mockOpt);
 
-    applyAllTranslations(); // Re-apply i18n for the new options
+    applyAllTranslations();
 
+    let savedModel = ipcRenderer.sendSync('get-config', 'miku-model-type');
+    const sm = String(savedModel || '').toLowerCase();
+    if (sm === 'deepface' || sm === 'df' || sm.includes('deepface') || sm === 'cnn') {
+      savedModel = DEFAULT_MODEL;
+      ipcRenderer.send('set-config', {key: 'miku-model-type', val: DEFAULT_MODEL});
+    }
+    if (savedModel && Array.from(modelSelect.options).some(o => o.value === savedModel)) {
+      modelSelect.value = savedModel;
+    } else {
+      modelSelect.value = Array.from(modelSelect.options).some(o => o.value === DEFAULT_MODEL)
+        ? DEFAULT_MODEL
+        : (modelSelect.options[0] ? modelSelect.options[0].value : 'mock');
+      ipcRenderer.send('set-config', {key: 'miku-model-type', val: modelSelect.value});
+    }
+    ipcRenderer.send('model-changed', modelSelect.value);
   }).catch(err => {
     console.error('Failed to load models:', err);
-  }).finally(() => {
-    checkDeepfaceStatus().then(() => {
-      const savedModel = ipcRenderer.sendSync('get-config', 'miku-model-type');
-      if (savedModel && Array.from(modelSelect.options).some(o => o.value === savedModel && !o.disabled)) {
-        modelSelect.value = savedModel;
-      } else {
-        const fallback = modelSelect.querySelector('option[value="deepface"]').disabled ? 'mock' : 'deepface';
-        modelSelect.value = fallback;
-        ipcRenderer.send('set-config', {key: 'miku-model-type', val: fallback});
-      }
-    });
   });
 
   modelSelect.addEventListener('change', () => {
@@ -242,12 +200,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Render API active selector ────────────────────────────────────────────
   function renderActiveSelectors() {
-    const apis   = loadApis();
+    const apis   = loadApisSync();
     const selId  = ipcRenderer.sendSync('get-config', LS_SEL_API) || '';
     const selMod = ipcRenderer.sendSync('get-config', LS_SEL_MODEL) || '';
 
     // Populate API dropdown
-    apiActiveSelect.innerHTML = `<option value="">${t('api.none')}</option>`;
+    apiActiveSelect.innerHTML = '';
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = t('api.none');
+    apiActiveSelect.appendChild(noneOpt);
     apis.forEach(api => {
       const opt = document.createElement('option');
       opt.value = api.id;
@@ -279,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   apiActiveSelect.addEventListener('change', () => {
-    const apis = loadApis();
+    const apis = loadApisSync();
     const selId = apiActiveSelect.value;
     ipcRenderer.send('set-config', {key: LS_SEL_API, val: selId});
     const api = apis.find(a => a.id === selId);
@@ -296,26 +258,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Render API list ───────────────────────────────────────────────────────
   function renderApiList() {
-    const apis = loadApis();
+    const apis = loadApisSync();
     apiList.innerHTML = '';
     if (apis.length === 0) {
       const empty = document.createElement('div');
       empty.style.cssText = 'font-size:13px;color:#9ba8b8;padding:6px 0;';
       empty.textContent = t('api.none');
       apiList.appendChild(empty);
+      renderActiveSelectors();
       return;
     }
     apis.forEach(api => {
       const item = document.createElement('div');
       item.className = 'api-item';
-      item.innerHTML = `
-        <span class="api-item-name">${api.name}</span>
-        <span class="api-item-url">${api.baseUrl}</span>
-        <button class="api-item-btn edit-btn">${t('api.edit')}</button>
-        <button class="api-item-btn del del-btn">${t('api.delete')}</button>
-      `;
-      item.querySelector('.edit-btn').addEventListener('click', () => openForm(api.id));
-      item.querySelector('.del-btn').addEventListener('click', () => deleteApi(api.id));
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'api-item-name';
+      nameSpan.textContent = api.name;
+      const urlSpan = document.createElement('span');
+      urlSpan.className = 'api-item-url';
+      urlSpan.textContent = api.baseUrl;
+      const editBtn = document.createElement('button');
+      editBtn.className = 'api-item-btn edit-btn';
+      editBtn.textContent = t('api.edit');
+      editBtn.addEventListener('click', () => openForm(api.id));
+      const delBtn = document.createElement('button');
+      delBtn.className = 'api-item-btn del del-btn';
+      delBtn.textContent = t('api.delete');
+      delBtn.addEventListener('click', () => deleteApi(api.id));
+      item.appendChild(nameSpan);
+      item.appendChild(urlSpan);
+      item.appendChild(editBtn);
+      item.appendChild(delBtn);
       apiList.appendChild(item);
     });
     renderActiveSelectors();
@@ -326,7 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editingId = id;
     apiForm.classList.add('open');
     if (id) {
-      const api = loadApis().find(a => a.id === id);
+      const api = loadApisSync().find(a => a.id === id);
       if (api) {
         apiFormName.value   = api.name;
         apiFormUrl.value    = api.baseUrl;
@@ -406,29 +379,29 @@ document.addEventListener('DOMContentLoaded', () => {
   apiFormCancel.addEventListener('click', closeForm);
 
   // ── Save / Delete ─────────────────────────────────────────────────────────
-  apiFormSave.addEventListener('click', () => {
+  apiFormSave.addEventListener('click', async () => {
     const name   = apiFormName.value.trim();
     const url    = apiFormUrl.value.trim();
     const key    = apiFormKey.value.trim();
     const models = apiFormModels.value.split(',').map(m => m.trim()).filter(Boolean);
     if (!name || !url) return;
 
-    const apis = loadApis();
+    const apis = [...loadApisSync()];
     if (editingId) {
       const idx = apis.findIndex(a => a.id === editingId);
       if (idx >= 0) apis[idx] = { id: editingId, name, baseUrl: url, apiKey: key, models };
     } else {
       apis.push({ id: uid(), name, baseUrl: url, apiKey: key, models });
     }
-    saveApis(apis);
+    await saveApis(apis);
     renderApiList();
     closeForm();
     broadcastLlmConfig();
   });
 
-  function deleteApi(id) {
-    let apis = loadApis().filter(a => a.id !== id);
-    saveApis(apis);
+  async function deleteApi(id) {
+    let apis = loadApisSync().filter(a => a.id !== id);
+    await saveApis(apis);
     if (ipcRenderer.sendSync('get-config', LS_SEL_API) === id) {
       ipcRenderer.send('set-config', {key: LS_SEL_API, val: null});
       ipcRenderer.send('set-config', {key: LS_SEL_MODEL, val: null});
@@ -437,8 +410,11 @@ document.addEventListener('DOMContentLoaded', () => {
     renderApiList();
   }
 
-  // ── Initial render ────────────────────────────────────────────────────────
-  renderApiList();
+  // ── Initial render (load encrypted APIs via main process first) ───────────
+  loadApis().then(() => {
+    renderApiList();
+    broadcastLlmConfig();
+  });
 
   // ══════════════════════════════════════════════════════════════════════════
   //  Ceremony (LoRA Initialization)
@@ -503,7 +479,19 @@ document.addEventListener('DOMContentLoaded', () => {
     ceremonyModalProgress.style.width = '0%';
     capturedData = [];
 
-    let ws = new WebSocket('ws://127.0.0.1:8765');
+    const wsUrl = (() => {
+      try {
+        const p = require('path');
+        const f = require('fs');
+        const portFile = p.join(__dirname, '..', 'user', 'ws_port.json');
+        if (f.existsSync(portFile)) {
+          const cfg = JSON.parse(f.readFileSync(portFile, 'utf8'));
+          return `ws://${cfg.host || '127.0.0.1'}:${cfg.port || 13939}`;
+        }
+      } catch (_) {}
+      return 'ws://127.0.0.1:13939';
+    })();
+    let ws = new WebSocket(wsUrl);
     
     // Wait for WS to connect
     await new Promise((resolve, reject) => {
@@ -599,7 +587,19 @@ document.addEventListener('DOMContentLoaded', () => {
   btnReinitCeremony.addEventListener('click', startCeremony);
   btnDeleteCeremony.addEventListener('click', () => {
     if (confirm(t('ceremony.confirm_delete'))) {
-      let ws = new WebSocket('ws://127.0.0.1:8765');
+      const wsUrl = (() => {
+        try {
+          const p = require('path');
+          const f = require('fs');
+          const portFile = p.join(__dirname, '..', 'user', 'ws_port.json');
+          if (f.existsSync(portFile)) {
+            const cfg = JSON.parse(f.readFileSync(portFile, 'utf8'));
+            return `ws://${cfg.host || '127.0.0.1'}:${cfg.port || 13939}`;
+          }
+        } catch (_) {}
+        return 'ws://127.0.0.1:13939';
+      })();
+      let ws = new WebSocket(wsUrl);
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'delete_lora_data' }));
         setTimeout(() => ws.close(), 1000);
@@ -612,14 +612,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Check state on load
-  const loraDir = path.join(__dirname, '..', 'user', 'lora');
-  if (fs.existsSync(loraDir) && fs.readdirSync(loraDir).some(f => f.endsWith('.safetensors') || f.endsWith('.pth'))) {
-    const masterName = ipcRenderer.sendSync('get-config', 'miku-master-name') || '主人';
-    ceremonyNameInput.value = masterName;
-    ceremonyIdleSection.style.display = 'none';
-    ceremonySuccessSection.style.display = 'block';
-    ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
-  }
+  // Check LoRA state on load (via main process — no direct fs for secrets dirs)
+  ipcRenderer.invoke('has-lora').then((hasLora) => {
+    if (hasLora) {
+      const masterName = ipcRenderer.sendSync('get-config', 'miku-master-name') || '主人';
+      ceremonyNameInput.value = masterName;
+      ceremonyIdleSection.style.display = 'none';
+      ceremonySuccessSection.style.display = 'block';
+      ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
+    }
+  });
 
 });

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/version-v1.0.2-ff69b4?style=for-the-badge" />
+<img src="https://img.shields.io/badge/version-v1.1.0-ff69b4?style=for-the-badge" />
 <img src="https://img.shields.io/badge/platform-Windows-0078d7?style=for-the-badge&logo=windows" />
 <img src="https://img.shields.io/badge/Electron-31.7.7-47848f?style=for-the-badge&logo=electron" />
 <img src="https://img.shields.io/badge/PyTorch-2.6.0-ee4c2c?style=for-the-badge&logo=pytorch" />
@@ -30,7 +30,7 @@ Miku Cure 绝不仅仅是一个简单的桌面挂件。它结合了本地深度�
 ### 2. 👁️ 实时情绪感知与核心管线
 - **低功耗后台采集**：以 1 FPS 的频率在后台默默运行，结合 MediaPipe 与 Haar Cascade 提供极速准确的面部截取与滑动窗口防抖。
 - **动态认主仪式 (LoRA)**：首创桌面伴侣“签订契约”系统。用户可在 UI 面板中跟随三段式引导录入个人面部数据，后台将自动进行微调训练并生成专属于你的 LoRA 权重，让模型越用越懂你！数据完全保存在本地，支持随时重新认主或一键消除。
-- **多引擎无缝热切**：支持轻量级自训练 PyTorch CNN，支持一键下载高精度预训练权重的开源 DeepFace 引擎，以及专为弱光/无摄像头环境打造的“亮度模拟器”。所有引擎支持设置面板一键热切换，即刻生效。
+- **多引擎无缝热切**：默认 **RNN + Attention** 情绪模型，另支持自训练 PyTorch CNN / MobileNet，以及专为弱光/无摄像头环境打造的“亮度模拟器”。设置面板一键热切换，即刻生效（DeepFace 已彻底移除）。
 
 ### 3. 🍅 专注番茄钟与专属多语言报告
 - **沉浸式专注模式**：设定时长后，Miku 会安静陪伴你倒计时。支持滚轮快速调节时长。
