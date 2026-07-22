@@ -1,10 +1,16 @@
 """主窗口：控制台 + 托盘守护 + 隐藏/显示桌宠。"""
 from __future__ import annotations
 
+import json
+import os
+
 from PySide6.QtCore import Qt, QTimer, Signal, QObject, QThread
 from PySide6.QtGui import QAction, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -54,6 +60,38 @@ class _EnvWorker(QThread):
         self.finished_ok.emit(report)
 
 
+class _StopWorker(QThread):
+    finished_ok = Signal()
+
+    def __init__(self, services: ServiceManager, *, backend_only: bool = False) -> None:
+        super().__init__()
+        self._services = services
+        self._backend_only = backend_only
+
+    def run(self) -> None:
+        if self._backend_only:
+            self._services.stop_backend_only()
+        else:
+            self._services.stop_all()
+        self.finished_ok.emit()
+
+
+def _config_path():
+    return USER_DIR / "config.json"
+
+
+def _load_config() -> dict:
+    try:
+        return json.loads(_config_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_config(config: dict) -> None:
+    USER_DIR.mkdir(parents=True, exist_ok=True)
+    _config_path().write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -68,6 +106,8 @@ class MainWindow(QMainWindow):
         self._linked_stop_done = False
         self._start_worker: _StartWorker | None = None
         self._env_worker: _EnvWorker | None = None
+        self._stop_worker: _StopWorker | None = None
+        self._exit_after_stop = False
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -75,24 +115,26 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
-        nav = QListWidget()
-        nav.setObjectName("nav")
-        nav.setFixedWidth(176)
-        for name in ("控制台", "环境检查", "关于"):
-            QListWidgetItem(name, nav)
-        nav.setCurrentRow(0)
-        root.addWidget(nav)
+        self.nav = QListWidget()
+        self.nav.setObjectName("nav")
+        self.nav.setFixedWidth(176)
+        for name in ("控制台", "环境检查", "系统设置", "关于"):
+            QListWidgetItem(name, self.nav)
+        self.nav.setCurrentRow(0)
+        root.addWidget(self.nav)
 
         self.stack = QStackedWidget()
         root.addWidget(self.stack, 1)
 
         self.page_dash = self._build_dashboard()
         self.page_env = self._build_env_page()
+        self.page_system = self._build_system_page()
         self.page_about = self._build_about()
         self.stack.addWidget(self.page_dash)
         self.stack.addWidget(self.page_env)
+        self.stack.addWidget(self.page_system)
         self.stack.addWidget(self.page_about)
-        nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
 
         self.logbus.line.connect(self._on_log)
         self.statusBar().showMessage(deploy_mode_label())
@@ -103,6 +145,7 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self._refresh_status)
         self._timer.start(600)
         self._refresh_status()
+        self._apply_launcher_language()
         QTimer.singleShot(200, self.refresh_env)
 
     def _setup_tray(self) -> None:
@@ -119,9 +162,9 @@ class MainWindow(QMainWindow):
         menu.addAction(self.act_toggle_pet)
 
         menu.addSeparator()
-        act_exit = QAction("退出（停止全部服务）", self)
-        act_exit.triggered.connect(self._tray_exit)
-        menu.addAction(act_exit)
+        self.act_exit = QAction("退出（停止全部服务）", self)
+        self.act_exit.triggered.connect(self._tray_exit)
+        menu.addAction(self.act_exit)
 
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._on_tray_activated)
@@ -144,22 +187,19 @@ class MainWindow(QMainWindow):
         self._refresh_status()
 
     def _tray_exit(self) -> None:
-        self.services.stop_all()
-        self._force_quit = True
-        self.tray.hide()
-        QApplication.instance().quit()
+        self._begin_stop(exit_after=True)
 
     def _build_dashboard(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setSpacing(12)
 
-        head = QLabel("控制台")
-        head.setObjectName("h1")
+        self.dash_head = QLabel("控制台")
+        self.dash_head.setObjectName("h1")
         sub = QLabel(deploy_mode_detail())
         sub.setObjectName("sub")
         sub.setWordWrap(True)
-        lay.addWidget(head)
+        lay.addWidget(self.dash_head)
         lay.addWidget(sub)
 
         self.status_label = QLabel("—")
@@ -193,12 +233,12 @@ class MainWindow(QMainWindow):
         btns.addStretch(1)
         lay.addLayout(btns)
 
-        tip = QLabel(
+        self.dash_tip = QLabel(
             "启动器是守护精灵：关闭窗口将最小化到托盘；右键托盘可隐藏/显示桌宠或完全退出。"
         )
-        tip.setObjectName("sub")
-        tip.setWordWrap(True)
-        lay.addWidget(tip)
+        self.dash_tip.setObjectName("sub")
+        self.dash_tip.setWordWrap(True)
+        lay.addWidget(self.dash_tip)
 
         self.tabs = QTabWidget()
         self.log_all = QPlainTextEdit()
@@ -216,9 +256,9 @@ class MainWindow(QMainWindow):
     def _build_env_page(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        head = QLabel("环境检查")
-        head.setObjectName("h1")
-        lay.addWidget(head)
+        self.env_head = QLabel("环境检查")
+        self.env_head.setObjectName("h1")
+        lay.addWidget(self.env_head)
         self.env_progress_label = QLabel("")
         self.env_progress_label.setObjectName("sub")
         self.env_progress = QProgressBar()
@@ -255,6 +295,129 @@ class MainWindow(QMainWindow):
         lay.addWidget(tip)
         lay.addStretch(1)
         return w
+
+    def _build_system_page(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setSpacing(14)
+        self.system_head = self._label("h1", "系统设置")
+        self.system_tip = self._label("sub", "语言设置同时应用于启动器和桌宠前端。")
+        lay.addWidget(self.system_head)
+        lay.addWidget(self.system_tip)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        self.lang_select = QComboBox()
+        self.lang_select.addItem("中文", "zh")
+        self.lang_select.addItem("日本語", "ja")
+        self.lang_select.addItem("English", "en")
+        current_lang = _load_config().get("miku-language", "zh")
+        index = self.lang_select.findData(current_lang)
+        self.lang_select.setCurrentIndex(max(index, 0))
+        self.lang_select.currentIndexChanged.connect(self._save_language)
+        self.lang_label = QLabel("语言")
+        form.addRow(self.lang_label, self.lang_select)
+        self.close_action_select = QComboBox()
+        self.close_action_select.addItem("每次询问", "ask")
+        self.close_action_select.addItem("最小化到托盘", "tray")
+        self.close_action_select.addItem("退出并停止服务", "exit")
+        close_action = _load_config().get("launcher-close-action", "ask")
+        self.close_action_select.setCurrentIndex(max(self.close_action_select.findData(close_action), 0))
+        self.close_action_select.currentIndexChanged.connect(self._save_close_action)
+        self.close_action_label = QLabel("关闭窗口时")
+        form.addRow(self.close_action_label, self.close_action_select)
+        lay.addLayout(form)
+
+        folders = (
+            ("打开音乐文件夹", PROJECT_ROOT / "miku" / "sing"),
+            ("打开跳舞（视频）文件夹", PROJECT_ROOT / "miku" / "dance"),
+            ("打开表情文件夹", PROJECT_ROOT / "miku" / "gif"),
+        )
+        self.folder_buttons = []
+        for text, folder in folders:
+            btn = QPushButton(text)
+            btn.setObjectName("secondary")
+            btn.clicked.connect(lambda _checked=False, p=folder: self._open_folder(p))
+            lay.addWidget(btn, alignment=Qt.AlignmentFlag.AlignLeft)
+            self.folder_buttons.append(btn)
+        lay.addStretch(1)
+        return w
+
+    def _save_language(self) -> None:
+        config = _load_config()
+        config["miku-language"] = self.lang_select.currentData()
+        _save_config(config)
+        self._apply_launcher_language()
+        self.statusBar().showMessage("语言设置已保存，桌宠前端会立即同步或在下次启动时生效")
+        if self.services.electron_running():
+            write_pet_command("language", lang=self.lang_select.currentData())
+
+    def _save_close_action(self) -> None:
+        config = _load_config()
+        action = self.close_action_select.currentData()
+        if action == "ask":
+            config.pop("launcher-close-action", None)
+        else:
+            config["launcher-close-action"] = action
+        _save_config(config)
+
+    def _apply_launcher_language(self) -> None:
+        lang = self.lang_select.currentData() if hasattr(self, "lang_select") else "zh"
+        texts = {
+            "zh": {
+                "nav": ("控制台", "环境检查", "系统设置", "关于"),
+                "dash": "控制台", "env": "环境检查", "system": "系统设置",
+                "tip": "语言设置同时应用于启动器和桌宠前端。",
+                "language": "语言", "close": "关闭窗口时",
+                "actions": ("每次询问", "最小化到托盘", "退出并停止服务"),
+                "folders": ("打开音乐文件夹", "打开跳舞（视频）文件夹", "打开表情文件夹"),
+                "show": "显示启动器", "exit": "退出（停止全部服务）",
+                "start": "一键启动", "stop": "停止服务",
+            },
+            "ja": {
+                "nav": ("コンソール", "環境チェック", "システム設定", "このアプリについて"),
+                "dash": "コンソール", "env": "環境チェック", "system": "システム設定",
+                "tip": "言語設定はランチャーとデスクトップペットの両方に適用されます。",
+                "language": "言語", "close": "ウィンドウを閉じる時",
+                "actions": ("毎回確認", "トレイに最小化", "終了してサービスを停止"),
+                "folders": ("音楽フォルダーを開く", "ダンス（動画）フォルダーを開く", "表情フォルダーを開く"),
+                "show": "ランチャーを表示", "exit": "終了（全サービス停止）",
+                "start": "すべて起動", "stop": "サービス停止",
+            },
+            "en": {
+                "nav": ("Console", "Environment", "System Settings", "About"),
+                "dash": "Console", "env": "Environment Check", "system": "System Settings",
+                "tip": "The language setting applies to both the launcher and desktop pet.",
+                "language": "Language", "close": "When closing",
+                "actions": ("Ask every time", "Minimize to tray", "Exit and stop services"),
+                "folders": ("Open music folder", "Open dance video folder", "Open expression folder"),
+                "show": "Show launcher", "exit": "Exit (stop all services)",
+                "start": "Start all", "stop": "Stop services",
+            },
+        }[lang if lang in ("zh", "ja", "en") else "zh"]
+        for index, value in enumerate(texts["nav"]):
+            self.nav.item(index).setText(value)
+        self.dash_head.setText(texts["dash"])
+        self.env_head.setText(texts["env"])
+        self.system_head.setText(texts["system"])
+        self.system_tip.setText(texts["tip"])
+        self.lang_label.setText(texts["language"])
+        self.close_action_label.setText(texts["close"])
+        for index, value in enumerate(texts["actions"]):
+            self.close_action_select.setItemText(index, value)
+        for button, value in zip(self.folder_buttons, texts["folders"]):
+            button.setText(value)
+        self.act_show_launcher.setText(texts["show"])
+        self.act_exit.setText(texts["exit"])
+        self.btn_start.setText(texts["start"])
+        self.btn_stop.setText(texts["stop"])
+
+    def _open_folder(self, folder) -> None:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(folder))
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, f"无法打开文件夹：\n{folder}\n\n{exc}")
 
     @staticmethod
     def _label(obj: str, text: str) -> QLabel:
@@ -334,9 +497,32 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _stop_all(self) -> None:
-        self.services.stop_all()
-        self._linked_stop_done = False
-        self._refresh_status()
+        self._begin_stop(exit_after=False)
+
+    def _begin_stop(self, *, exit_after: bool, backend_only: bool = False) -> None:
+        if self._stop_worker and self._stop_worker.isRunning():
+            self._exit_after_stop = self._exit_after_stop or exit_after
+            return
+        self._exit_after_stop = exit_after
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(False)
+        self.statusBar().showMessage("正在停止服务…")
+        worker = _StopWorker(self.services, backend_only=backend_only)
+        self._stop_worker = worker
+
+        def on_done() -> None:
+            if not backend_only:
+                self._linked_stop_done = False
+            self._refresh_status()
+            if self._exit_after_stop:
+                self._force_quit = True
+                self.tray.hide()
+                QApplication.instance().quit()
+            else:
+                self.statusBar().showMessage("服务已停止")
+
+        worker.finished_ok.connect(on_done)
+        worker.start()
 
     def _toggle_pet_btn(self) -> None:
         self.services.toggle_pet()
@@ -355,16 +541,14 @@ class MainWindow(QMainWindow):
             if not self._linked_stop_done:
                 self._linked_stop_done = True
                 self.services.log("system", "检测到桌宠已退出，正在停止后端…")
-                self.services.stop_backend_only()
-                self.services.electron_proc = None
-                self.services.pet_hidden = False
-                self.services.log("system", "服务已全部停止")
-                self.statusBar().showMessage("桌宠已关闭，后端已停止")
+                self._begin_stop(exit_after=False, backend_only=True)
+            self.services.electron_proc = None
+            self.services.pet_hidden = False
         elif ctrl.get("action") == "pet_closed" and not self._linked_stop_done and self.services.backend_running():
             # Electron external-backend mode signals pet closed without killing backend itself
             self._linked_stop_done = True
             self.services.log("system", "桌宠发来关闭信号，停止后端…")
-            self.services.stop_backend_only()
+            self._begin_stop(exit_after=False, backend_only=True)
             if self.services.electron_proc and self.services.electron_proc.poll() is not None:
                 self.services.electron_proc = None
             self.services.pet_hidden = False
@@ -376,6 +560,7 @@ class MainWindow(QMainWindow):
         busy = bool(
             (self._start_worker and self._start_worker.isRunning())
             or (self._env_worker and self._env_worker.isRunning())
+            or (self._stop_worker and self._stop_worker.isRunning())
         )
         running = self.services.any_running()
         self.btn_start.setEnabled(not running and not busy)
@@ -406,8 +591,43 @@ class MainWindow(QMainWindow):
         if self._force_quit:
             event.accept()
             return
-        # 关闭窗口 = 最小化到托盘（守护精灵不退出）
+        config = _load_config()
+        remembered = config.get("launcher-close-action")
+        if remembered == "tray":
+            event.ignore()
+            self._minimize_to_tray()
+            return
+        if remembered == "exit":
+            event.ignore()
+            self.hide()
+            self._begin_stop(exit_after=True)
+            return
+
+        box = QMessageBox(self)
+        box.setWindowTitle("关闭启动器")
+        box.setText("关闭窗口后要执行什么操作？")
+        box.setInformativeText("最小化会保持服务运行；退出会关闭桌宠和后端服务。")
+        btn_tray = box.addButton("最小化到托盘", QMessageBox.ButtonRole.AcceptRole)
+        btn_exit = box.addButton("退出并停止服务", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        remember = QCheckBox("记住我的选择")
+        box.setCheckBox(remember)
+        box.exec()
+        chosen = box.clickedButton()
+        if chosen not in (btn_tray, btn_exit):
+            event.ignore()
+            return
+        if remember.isChecked():
+            config["launcher-close-action"] = "tray" if chosen is btn_tray else "exit"
+            _save_config(config)
         event.ignore()
+        if chosen is btn_exit:
+            self.hide()
+            self._begin_stop(exit_after=True)
+        else:
+            self._minimize_to_tray()
+
+    def _minimize_to_tray(self) -> None:
         self.hide()
         self.tray.showMessage(
             APP_NAME,

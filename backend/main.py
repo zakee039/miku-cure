@@ -458,7 +458,7 @@ if __name__ == '__main__':
     def on_client_connect():
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.1.0",
+            "version": "1.1.1",
             "model": detector.model_type,
             "face_engine": (
                 "mp_tasks" if getattr(detector, "mp_tasks_face", None)
@@ -489,7 +489,7 @@ if __name__ == '__main__':
     if getattr(ws_server, 'bind_ok', False):
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.1.0",
+            "version": "1.1.1",
             "model": detector.model_type,
         })
         print("Backend: Ready signal broadcast.")

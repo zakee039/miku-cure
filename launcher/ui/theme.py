@@ -178,6 +178,11 @@ QMessageBox {
 QMessageBox QLabel {
     color: #1a2433;
     font-size: 14px;
+    background: transparent;
+}
+QMessageBox QCheckBox {
+    color: #1a2433;
+    background: transparent;
 }
 """
 
@@ -204,4 +209,3 @@ def app_icon() -> QIcon:
         if not icon.isNull():
             return icon
     return QIcon()
-

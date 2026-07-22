@@ -41,17 +41,26 @@ let singFiles = [];
 const SING_VIDEO  = 'MIKU-SING.mp4';
 const PAUSE_VIDEO = 'MIKU-PAUSE.mp4';
 const SPECIAL_VIDEOS = new Set([SING_VIDEO, PAUSE_VIDEO]);
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mkv', '.mov', '.avi', '.m4v']);
+const IMAGE_EXTENSIONS = new Set(['.gif', '.png', '.jpg', '.jpeg', '.webp', '.bmp']);
+const AUDIO_EXTENSIONS = new Set(['.ogg', '.mp3', '.wav', '.m4a', '.aac', '.flac']);
+
+function hasExtension(filename, extensions) {
+  return extensions.has(path.extname(filename).toLowerCase());
+}
 
 try {
   if (fs.existsSync(gifDir)) {
     // Exclude special sing-player videos from daily rotation
-    gifFiles = fs.readdirSync(gifDir).filter(f => f.endsWith('.mp4') && !SPECIAL_VIDEOS.has(f));
+    gifFiles = fs.readdirSync(gifDir).filter(f =>
+      (hasExtension(f, VIDEO_EXTENSIONS) || hasExtension(f, IMAGE_EXTENSIONS)) && !SPECIAL_VIDEOS.has(f)
+    );
   }
   if (fs.existsSync(danceDir)) {
-    danceFiles = fs.readdirSync(danceDir).filter(f => f.endsWith('.mp4'));
+    danceFiles = fs.readdirSync(danceDir).filter(f => hasExtension(f, VIDEO_EXTENSIONS));
   }
   if (fs.existsSync(singDir)) {
-    singFiles = fs.readdirSync(singDir).filter(f => f.endsWith('.ogg') || f.endsWith('.mp3'));
+    singFiles = fs.readdirSync(singDir).filter(f => hasExtension(f, AUDIO_EXTENSIONS));
   }
 } catch (err) {
   console.error("Error reading Miku directories:", err);
@@ -66,6 +75,9 @@ function playSingStateVideo(filename) {
     return;
   }
   clearTimeout(rotationTimer);
+  mikuImage.style.display = 'none';
+  mikuImage.removeAttribute('src');
+  mikuVideo.style.display = 'block';
   const targetSrc = 'file:///' + p.replace(/\\/g, '/');
   
   // Prevent restarting the video if it's already playing the target file
@@ -81,6 +93,7 @@ function playSingStateVideo(filename) {
 
 // DOM Elements
 const mikuVideo = document.getElementById('miku-video');
+const mikuImage = document.getElementById('miku-image');
 const closeBtn = document.getElementById('close-btn');
 const chatBubble = document.getElementById('chat-bubble');
 const chatText = document.getElementById('chat-text');
@@ -136,6 +149,24 @@ let currentSingIndex = 0;
 let currentDanceIndex = 0;
 let isPlayingSing = false;
 let currentModelType = ipcRenderer.sendSync('get-config', 'miku-model-type') || 'best_rnn_attention.pth';
+
+function showMediaFile(filePath, { muted = true, loop = true } = {}) {
+  const source = 'file:///' + filePath.replace(/\\/g, '/');
+  if (hasExtension(filePath, IMAGE_EXTENSIONS)) {
+    mikuVideo.pause();
+    mikuVideo.style.display = 'none';
+    mikuImage.src = source;
+    mikuImage.style.display = 'block';
+    return Promise.resolve();
+  }
+  mikuImage.style.display = 'none';
+  mikuImage.removeAttribute('src');
+  mikuVideo.style.display = 'block';
+  mikuVideo.src = source;
+  mikuVideo.muted = muted;
+  mikuVideo.loop = loop;
+  return mikuVideo.play();
+}
 // Migrate obsolete engines (DeepFace fully removed) → default RNN
 {
   const mt = String(currentModelType || '').toLowerCase();
@@ -147,9 +178,9 @@ let currentModelType = ipcRenderer.sendSync('get-config', 'miku-model-type') || 
 
 
 
-// Close Window Action
+// The pet close icon always hides the widget; services keep running.
 closeBtn.addEventListener('click', () => {
-  window.close();
+  ipcRenderer.send('hide-pet');
 });
 
 // Custom JS-Based Window Dragging (Drift-free)
@@ -216,13 +247,11 @@ if (emotionBadge) {
 function playRandomDailyVideo() {
   if (mikuState !== 'daily') return;
   if (gifFiles.length === 0) {
-    console.warn("No daily MP4 animation files found in miku/gif/");
+    console.warn("No supported animation or image files found in miku/gif/");
     return;
   }
   const randomFile = gifFiles[Math.floor(Math.random() * gifFiles.length)];
-  mikuVideo.src = 'file:///' + path.join(gifDir, randomFile).replace(/\\/g, '/');
-  mikuVideo.muted = true;
-  mikuVideo.play().catch(err => console.error("Playback error:", err));
+  showMediaFile(path.join(gifDir, randomFile)).catch(err => console.error("Playback error:", err));
 
   // Set rotation timer for 30s
   clearTimeout(rotationTimer);
@@ -230,7 +259,8 @@ function playRandomDailyVideo() {
 }
 
 // Double click to switch GIF
-mikuVideo.addEventListener('dblclick', () => {
+document.getElementById('miku-display').addEventListener('dblclick', (event) => {
+  if (event.target.closest('button, input, .emotion-badge')) return;
   if (mikuState === 'daily') {
     playRandomDailyVideo();
   }
@@ -263,6 +293,8 @@ function startDance(index = null) {
   }
   
   const randomFile = danceFiles[currentDanceIndex];
+  mikuImage.style.display = 'none';
+  mikuVideo.style.display = 'block';
   mikuVideo.src = 'file:///' + path.join(danceDir, randomFile).replace(/\\/g, '/');
   mikuVideo.muted = false;
   mikuVideo.loop = false;
@@ -637,6 +669,30 @@ const EMOTION_UI_MAP = {
 };
 
 let configSynced = false;
+const pendingBackendMessages = [];
+let pendingChatTimeout = null;
+
+function sendOrQueueBackendMessage(message) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(message));
+    return;
+  }
+  pendingBackendMessages.push(message);
+}
+
+function flushPendingBackendMessages() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  while (pendingBackendMessages.length) {
+    ws.send(JSON.stringify(pendingBackendMessages.shift()));
+  }
+}
+
+function armChatTimeout() {
+  clearTimeout(pendingChatTimeout);
+  pendingChatTimeout = setTimeout(() => {
+    ipcRenderer.send('chat-send-failed', '聊天服务暂时没有响应，请稍后重试。');
+  }, 20000);
+}
 
 async function syncConfigToBackend(force = false) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -679,6 +735,7 @@ function connectBackend() {
     wsRetryDelay = 1000;
     configSynced = false;
     ws.send(JSON.stringify({ type: 'ping' }));
+    flushPendingBackendMessages();
   };
 
   ws.onmessage = (event) => {
@@ -730,6 +787,8 @@ function connectBackend() {
       
       // Chat reply
       if (data.type === 'chat_reply') {
+        clearTimeout(pendingChatTimeout);
+        pendingChatTimeout = null;
         ipcRenderer.send('chat-reply-from-backend', data.text);
       }
       
@@ -775,19 +834,20 @@ function showReportCard(data) {
 
 // Forward chat message from chat window to backend
 ipcRenderer.on('forward-chat-to-backend', (event, payload) => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    if (typeof payload === 'string') {
-      ws.send(JSON.stringify({ type: 'chat_request', text: payload }));
-    } else {
-      ws.send(JSON.stringify({ type: 'chat_request', text: payload.text, hidden_context: payload.hidden_context }));
-    }
+  armChatTimeout();
+  if (typeof payload === 'string') {
+    sendOrQueueBackendMessage({ type: 'chat_request', text: payload });
+  } else {
+    sendOrQueueBackendMessage({
+      type: 'chat_request',
+      text: payload.text,
+      hidden_context: payload.hidden_context,
+    });
   }
 });
 
 ipcRenderer.on('forward-history-request-to-backend', () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'get_chat_history' }));
-  }
+  sendOrQueueBackendMessage({ type: 'get_chat_history' });
 });
 
 
@@ -810,6 +870,13 @@ ipcRenderer.on('action-from-chat', (event, action) => {
 // App Initialization
 mikuState = 'daily';
 playRandomDailyVideo();
+
+ipcRenderer.on('language-changed', (event, lang) => {
+  applyI18n();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'set_lang', lang }));
+  }
+});
 
 // Apply i18n on startup
 applyI18n();

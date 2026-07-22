@@ -283,7 +283,7 @@ foreach ($d in @("user\keys", "user\lora", "user\memorize", "user\others", "logs
 Write-Step "Writing manifest and start scripts..."
 $manifestObj = [ordered]@{
     name              = "MikuCure"
-    version           = "1.1.0"
+    version           = "1.1.1"
     mode              = "portable"
     torch             = "cpu"
     preferred_ws_port = 13939

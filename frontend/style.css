@@ -71,11 +71,16 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   z-index: 20;
 }
 
-.miku-display-area video {
+.miku-display-area video,
+.miku-display-area img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   cursor: pointer;
+}
+
+.miku-display-area img {
+  display: none;
 }
 
 /* Floating Header Bar (strictly inside video at top, background-free) */

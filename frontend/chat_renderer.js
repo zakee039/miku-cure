@@ -108,6 +108,14 @@ ipcRenderer.on('chat-reply-from-backend', (event, reply) => {
   chatInput.focus();
 });
 
+ipcRenderer.on('chat-send-failed', (event, reason) => {
+  showTyping(false);
+  addMessage(reason || t('emotion.disconnected'), false);
+  sendBtn.disabled = false;
+  chatInput.disabled = false;
+  chatInput.focus();
+});
+
 ipcRenderer.on('chat-history-from-backend', (event, history) => {
   historyLoaded = true;
   if (history && history.length > 0) {

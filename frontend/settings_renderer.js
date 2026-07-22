@@ -180,6 +180,12 @@ document.addEventListener('DOMContentLoaded', () => {
     ipcRenderer.send('lang-changed', lang);
   });
 
+  ipcRenderer.on('language-changed', () => {
+    langSelect.value = getCurrentLang();
+    applyAllTranslations();
+    renderApiList();
+  });
+
   // ══════════════════════════════════════════════════════════════════════════
   //  API Management
   // ══════════════════════════════════════════════════════════════════════════

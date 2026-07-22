@@ -16,7 +16,7 @@ const {
 app.name = 'Miku Cure';
 // Note: Electron API is setAppUserModelId (lowercase d), not setAppUserModelID
 if (process.platform === 'win32' && typeof app.setAppUserModelId === 'function') {
-  app.setAppUserModelId('MikuCure.DesktopPet.1.1.0');
+  app.setAppUserModelId('MikuCure.DesktopPet.1.1.1');
 }
 
 /** Unified app icon: miku face from miku/icon.* */
@@ -49,6 +49,8 @@ let backendProcess = null;
 let backendPid = null;
 let petControlTimer = null;
 let petHidden = false;
+let backendStopNotified = false;
+let quitting = false;
 
 function petControlPath() {
   return path.join(getUserDir(), 'pet_control.json');
@@ -70,17 +72,16 @@ function writePetState(extra = {}) {
   }
 }
 
-function applyPetVisibility(hide) {
+function applyPetVisibility(hide, publishState = true) {
   petHidden = !!hide;
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (petHidden) {
     mainWindow.hide();
   } else {
-    mainWindow.show();
+    if (!mainWindow.isVisible()) mainWindow.showInactive();
     mainWindow.setAlwaysOnTop(true);
-    mainWindow.focus();
   }
-  writePetState();
+  if (publishState) writePetState();
 }
 
 function startPetControlWatcher() {
@@ -95,9 +96,17 @@ function startPetControlWatcher() {
       if (m <= lastMtime) return;
       lastMtime = m;
       const cmd = JSON.parse(fs.readFileSync(p, 'utf8') || '{}');
-      if (cmd.action === 'hide') applyPetVisibility(true);
-      else if (cmd.action === 'show') applyPetVisibility(false);
-      else if (cmd.action === 'toggle') applyPetVisibility(!petHidden);
+      // Commands already came from this file. Do not write them back or the
+      // watcher will create a 400ms show/focus feedback loop.
+      if (cmd.action === 'hide') applyPetVisibility(true, false);
+      else if (cmd.action === 'show') applyPetVisibility(false, false);
+      else if (cmd.action === 'toggle') applyPetVisibility(!petHidden, false);
+      else if (cmd.action === 'language' && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('language-changed', cmd.lang || 'zh');
+        if (settingsWindow && !settingsWindow.isDestroyed()) {
+          settingsWindow.webContents.send('language-changed', cmd.lang || 'zh');
+        }
+      }
       else if (cmd.action === 'quit') {
         // Launcher is exiting everything — quit Electron; backend stopped by launcher PID tree
         if (petControlTimer) {
@@ -257,6 +266,8 @@ function loadApisDecrypted() {
 // Launcher watches pet_control.json + Electron exit and stops backend via its own tracked PID.
 function killBackend() {
   if (isExternalBackend()) {
+    if (backendStopNotified) return;
+    backendStopNotified = true;
     console.log('[Main] External backend mode — notify launcher only (no taskkill / no PowerShell)');
     try {
       writePetState({ action: 'pet_closed', state: petHidden ? 'hidden' : 'visible' });
@@ -314,6 +325,7 @@ function killBackend() {
 
 
 function createWindow() {
+  backendStopNotified = false;
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
 
   // Pet main window dimensions: exactly 208x208 (fits 200x200 video + margins & shadows)
@@ -339,13 +351,14 @@ function createWindow() {
   // Launcher can request hide/show via user/pet_control.json
   startPetControlWatcher();
 
-  // Kill backend as early as possible (before other windows tear down)
-  mainWindow.on('close', () => {
-    killBackend();
+  mainWindow.on('close', (event) => {
+    if (!quitting) {
+      event.preventDefault();
+      app.quit();
+    }
   });
 
   mainWindow.on('closed', function () {
-    killBackend();
     mainWindow = null;
     if (settingsWindow) {
       settingsWindow.close();
@@ -381,30 +394,49 @@ ipcMain.on('window-drag', (event, delta) => {
   });
 });
 
+ipcMain.on('hide-pet', () => {
+  applyPetVisibility(true);
+});
+
 // 2. IPC listener to open settings window in a separate container
 ipcMain.on('open-settings', () => {
   if (settingsWindow) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore();
+    settingsWindow.show();
     settingsWindow.focus();
+    settingsWindow.moveTop();
     return;
   }
 
-  settingsWindow = new BrowserWindow({
-    width: 720,
-    height: 480,
-    title: "Miku Settings",
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    icon: APP_ICON,
-    webPreferences: securePrefs()
-  });
+  try {
+    settingsWindow = new BrowserWindow({
+      width: 720,
+      height: 480,
+      title: "Miku Cure 设置",
+      resizable: false,
+      minimizable: true,
+      maximizable: false,
+      icon: APP_ICON,
+      webPreferences: securePrefs()
+    });
 
-  settingsWindow.setMenu(null);
-  settingsWindow.loadFile('settings.html');
+    settingsWindow.setMenu(null);
+    settingsWindow.loadFile(path.join(__dirname, 'settings.html')).catch((error) => {
+      console.error('[Main] Settings window failed to load:', error);
+    });
+    settingsWindow.once('ready-to-show', () => {
+      settingsWindow.show();
+      settingsWindow.focus();
+      settingsWindow.moveTop();
+    });
 
-  settingsWindow.on('closed', () => {
+    settingsWindow.on('closed', () => {
+      settingsWindow = null;
+    });
+  } catch (error) {
     settingsWindow = null;
-  });
+    console.error('[Main] Settings window failed to create:', error);
+  }
 });
 
 // 3. Forward model-changed IPC message from settingsWindow to mainWindow
@@ -502,7 +534,11 @@ ipcMain.on('open-chat', () => {
 });
 
 ipcMain.on('chat-message', (event, text) => {
-  if (mainWindow) mainWindow.webContents.send('forward-chat-to-backend', text);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('forward-chat-to-backend', text);
+  } else if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.send('chat-send-failed', '桌宠主窗口未就绪');
+  }
 });
 
 ipcMain.on('action-from-chat', (event, action) => {
@@ -511,6 +547,12 @@ ipcMain.on('action-from-chat', (event, action) => {
 
 ipcMain.on('chat-reply-from-backend', (event, reply) => {
   if (chatWindow) chatWindow.webContents.send('chat-reply-from-backend', reply);
+});
+
+ipcMain.on('chat-send-failed', (event, reason) => {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.webContents.send('chat-send-failed', reason);
+  }
 });
 
 ipcMain.on('request-chat-history', () => {
@@ -591,6 +633,7 @@ app.on('ready', createWindow);
 
 // Kill backend on every quit path (safety net)
 app.on('before-quit', () => {
+  quitting = true;
   killBackend();
 });
 app.on('will-quit', () => {

@@ -40,6 +40,7 @@ def _kill_tree(pid: int) -> None:
                 ["taskkill", "/F", "/T", "/PID", str(pid)],
                 capture_output=True,
                 check=False,
+                timeout=3,
             )
         else:
             os.kill(pid, 9)
@@ -240,16 +241,25 @@ class ServiceManager:
 
     def stop_backend_only(self) -> None:
         """Stop Python backend using only tracked PIDs (no PowerShell)."""
+        killed_pids: set[int] = set()
         if self.backend_proc and self.backend_proc.poll() is None:
-            _kill_tree(self.backend_proc.pid)
-            self.log("system", f"已结束后端 PID={self.backend_proc.pid}")
+            pid = self.backend_proc.pid
+            _kill_tree(pid)
+            if self.backend_proc.poll() is None:
+                try:
+                    self.backend_proc.kill()
+                    self.backend_proc.wait(timeout=1)
+                except Exception:
+                    pass
+            killed_pids.add(pid)
+            self.log("system", f"已结束后端 PID={pid}")
         self.backend_proc = None
 
         pid_file = USER_DIR / "backend.pid"
         if pid_file.exists():
             try:
                 raw = pid_file.read_text(encoding="utf-8").strip()
-                if raw.isdigit():
+                if raw.isdigit() and int(raw) not in killed_pids:
                     _kill_tree(int(raw))
                 pid_file.unlink(missing_ok=True)
             except Exception:
@@ -266,6 +276,12 @@ class ServiceManager:
 
         if self.electron_proc and self.electron_proc.poll() is None:
             _kill_tree(self.electron_proc.pid)
+            if self.electron_proc.poll() is None:
+                try:
+                    self.electron_proc.kill()
+                    self.electron_proc.wait(timeout=1)
+                except Exception:
+                    pass
             self.log("system", f"已结束 Electron PID={self.electron_proc.pid}")
         self.electron_proc = None
         self.pet_hidden = False
