@@ -79,3 +79,11 @@ desktop.ini
 
 # ── 可选：媒体资源过大时取消注释 ─────────────────────
 # miku/
+
+# Local release and verification scratch directories
+.release-staging-*/
+.launcher-build/
+.launcher-update/
+.verify-*/
+.final-check/
+.integration-check/

@@ -218,28 +218,45 @@ document.addEventListener('mouseup', () => {
 });
 
 // Emotion badge click to toggle camera
-let isCameraConnected = true;
+let isCameraConnected = false;
+let isCameraConnecting = false;
 const emotionBadge = document.getElementById('emotion-badge');
+
+function renderCameraConnectionState() {
+  const emojiEl = document.getElementById('emotion-emoji');
+  const labelEl = document.getElementById('emotion-label');
+  const confEl = document.getElementById('emotion-conf');
+  if (isCameraConnecting) {
+    if (labelEl) {
+      labelEl.textContent = t('emotion.connecting');
+      labelEl.removeAttribute('data-i18n');
+    }
+    if (confEl) confEl.textContent = '--%';
+  } else if (!isCameraConnected) {
+    if (emojiEl) emojiEl.textContent = '🔌';
+    if (labelEl) {
+      labelEl.textContent = t('emotion.disconnected');
+      labelEl.removeAttribute('data-i18n');
+    }
+    if (confEl) confEl.textContent = '--%';
+  }
+}
+
 if (emotionBadge) {
+  renderCameraConnectionState();
   emotionBadge.addEventListener('click', () => {
-    isCameraConnected = !isCameraConnected;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'toggle_camera', state: isCameraConnected }));
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      isCameraConnected = false;
+      isCameraConnecting = false;
+      renderCameraConnectionState();
+      return;
     }
-    if (!isCameraConnected) {
-      const emojiEl = document.getElementById('emotion-emoji');
-      const labelEl = document.getElementById('emotion-label');
-      const confEl  = document.getElementById('emotion-conf');
-      if (emojiEl) emojiEl.textContent = '🔌';
-      if (labelEl) {
-        labelEl.textContent = t('emotion.disconnected');
-        labelEl.removeAttribute('data-i18n');
-      }
-      if (confEl)  confEl.textContent  = '--%';
-    } else {
-      const labelEl = document.getElementById('emotion-label');
-      if (labelEl) labelEl.textContent = t('emotion.connecting');
-    }
+
+    const shouldConnect = !isCameraConnected && !isCameraConnecting;
+    isCameraConnecting = shouldConnect;
+    if (!shouldConnect) isCameraConnected = false;
+    renderCameraConnectionState();
+    ws.send(JSON.stringify({ type: 'toggle_camera', state: shouldConnect }));
   });
 }
 
@@ -749,6 +766,17 @@ function connectBackend() {
           console.log('Backend ready handshake OK.');
         }
         syncConfigToBackend(false);
+        if (data.type === 'backend_ready' && typeof data.camera_enabled === 'boolean') {
+          isCameraConnected = data.camera_enabled;
+          isCameraConnecting = false;
+          renderCameraConnectionState();
+        }
+      }
+
+      if (data.type === 'camera_status' && typeof data.connected === 'boolean') {
+        isCameraConnected = data.connected;
+        isCameraConnecting = false;
+        renderCameraConnectionState();
       }
 
       // Real-time emotion update
@@ -808,6 +836,8 @@ function connectBackend() {
   ws.onclose = () => {
     backendReady = false;
     configSynced = false;
+    isCameraConnected = false;
+    isCameraConnecting = false;
     console.warn(`Backend connection lost. Retrying in ${wsRetryDelay}ms...`);
     const emojiEl = document.getElementById('emotion-emoji');
     const confEl = document.getElementById('emotion-conf');

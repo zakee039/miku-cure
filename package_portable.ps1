@@ -4,6 +4,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDirectory = "",
+    [string]$LauncherPath = "",
     [switch]$SkipMedia,
     [switch]$KeepStaging,
     [switch]$SkipLauncherBuild
@@ -102,7 +103,11 @@ Write-Step ("Creating staging: " + $PkgRoot)
 New-Item -ItemType Directory -Path $PkgRoot -Force | Out-Null
 
 # -- 0) Launcher --
-$launcherExe = Join-Path $ProjectRoot "MikuCure-Launcher.exe"
+$launcherExe = if ($LauncherPath) {
+    [System.IO.Path]::GetFullPath($LauncherPath)
+} else {
+    Join-Path $ProjectRoot "MikuCure-Launcher.exe"
+}
 if (-not $SkipLauncherBuild) {
     Write-Step "Building launcher (PyInstaller)..."
     $launcherDir = Join-Path $ProjectRoot "launcher"
@@ -283,7 +288,7 @@ foreach ($d in @("user\keys", "user\lora", "user\memorize", "user\others", "logs
 Write-Step "Writing manifest and start scripts..."
 $manifestObj = [ordered]@{
     name              = "MikuCure"
-    version           = "1.1.1"
+    version           = "1.1.2"
     mode              = "portable"
     torch             = "cpu"
     preferred_ws_port = 13939

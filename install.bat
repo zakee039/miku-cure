@@ -4,7 +4,7 @@ setlocal
 echo.
 echo  ========================================
 echo  ^|                                      ^|
-echo  ^|   Miku Cure - Install Script  v1.1.1    ^|
+echo  ^|   Miku Cure - Install Script  v1.1.2    ^|
 echo  +==========================================+
 echo.
 

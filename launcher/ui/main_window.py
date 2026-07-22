@@ -3,9 +3,23 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal, QObject, QThread
-from PySide6.QtGui import QAction, QTextCursor
+from PySide6.QtCore import (
+    QEasingCurve,
+    QObject,
+    QPointF,
+    Property,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QAction, QColor, QPainter, QPen, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -36,6 +50,95 @@ from ui.theme import app_icon
 
 class LogBus(QObject):
     line = Signal(str, str)
+
+
+class AnimatedCheckBox(QCheckBox):
+    def __init__(self, text: str = "", parent=None) -> None:
+        super().__init__(text, parent)
+        self._check_progress = 1.0 if self.isChecked() else 0.0
+        self._animation = QPropertyAnimation(self, b"checkProgress", self)
+        self._animation.setDuration(170)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.toggled.connect(self._animate_check)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _get_check_progress(self) -> float:
+        return self._check_progress
+
+    def _set_check_progress(self, value: float) -> None:
+        self._check_progress = max(0.0, min(1.0, value))
+        self.update()
+
+    checkProgress = Property(float, _get_check_progress, _set_check_progress)
+
+    def _animate_check(self, checked: bool) -> None:
+        self._animation.stop()
+        self._animation.setStartValue(self._check_progress)
+        self._animation.setEndValue(1.0 if checked else 0.0)
+        self._animation.start()
+
+    @staticmethod
+    def _mix(start: QColor, end: QColor, amount: float) -> QColor:
+        return QColor(
+            round(start.red() + (end.red() - start.red()) * amount),
+            round(start.green() + (end.green() - start.green()) * amount),
+            round(start.blue() + (end.blue() - start.blue()) * amount),
+        )
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        base = super().sizeHint()
+        return QSize(base.width() + 8, max(base.height(), 26))
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        box_size = 18.0
+        box = QRectF(1.0, (self.height() - box_size) / 2.0, box_size, box_size)
+        progress = self._check_progress
+        background = self._mix(QColor("#ffffff"), QColor("#39c5bb"), progress)
+        border = self._mix(QColor("#9aa9b8"), QColor("#2aa89f"), progress)
+        if not self.isEnabled():
+            background.setAlpha(120)
+            border.setAlpha(120)
+
+        painter.setPen(QPen(border, 1.5))
+        painter.setBrush(background)
+        painter.drawRoundedRect(box, 4.0, 4.0)
+
+        if progress > 0.0:
+            first = QPointF(box.left() + 4.0, box.top() + 9.2)
+            middle = QPointF(box.left() + 7.6, box.top() + 12.8)
+            end = QPointF(box.left() + 14.3, box.top() + 5.2)
+            pen = QPen(QColor("#ffffff"), 2.2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            if progress <= 0.42:
+                amount = progress / 0.42
+                painter.drawLine(first, first + (middle - first) * amount)
+            else:
+                painter.drawLine(first, middle)
+                amount = (progress - 0.42) / 0.58
+                painter.drawLine(middle, middle + (end - middle) * amount)
+
+        text_rect = self.rect().adjusted(27, 0, 0, 0)
+        text_color = self.palette().windowText().color()
+        if not self.isEnabled():
+            text_color.setAlpha(130)
+        painter.setPen(text_color)
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            self.text(),
+        )
+
+        if self.hasFocus():
+            focus = QPen(QColor("#39c5bb"), 1.0, Qt.PenStyle.DotLine)
+            painter.setPen(focus)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(self.rect().adjusted(0, 1, -1, -1), 4, 4)
 
 
 class _StartWorker(QThread):
@@ -69,11 +172,15 @@ class _StopWorker(QThread):
         self._backend_only = backend_only
 
     def run(self) -> None:
-        if self._backend_only:
-            self._services.stop_backend_only()
-        else:
-            self._services.stop_all()
-        self.finished_ok.emit()
+        try:
+            if self._backend_only:
+                self._services.stop_backend_only()
+            else:
+                self._services.stop_all()
+        except Exception as exc:
+            self._services.log("system", f"停止服务时发生错误：{exc}")
+        finally:
+            self.finished_ok.emit()
 
 
 def _config_path():
@@ -90,6 +197,49 @@ def _load_config() -> dict:
 def _save_config(config: dict) -> None:
     USER_DIR.mkdir(parents=True, exist_ok=True)
     _config_path().write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_RUN_VALUE_NAME = "MikuCureLauncher"
+
+
+def _autostart_command() -> str:
+    if getattr(sys, "frozen", False):
+        return f'"{Path(sys.executable).resolve()}" --autostart'
+    main_py = Path(__file__).resolve().parent.parent / "main.py"
+    return f'"{Path(sys.executable).resolve()}" "{main_py}" --autostart'
+
+
+def _windows_autostart_enabled() -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, _RUN_VALUE_NAME)
+            if value and value != _autostart_command():
+                winreg.SetValueEx(
+                    key, _RUN_VALUE_NAME, 0, winreg.REG_SZ, _autostart_command()
+                )
+        return bool(value)
+    except (FileNotFoundError, OSError):
+        return False
+
+
+def _set_windows_autostart(enabled: bool) -> None:
+    if sys.platform != "win32":
+        raise OSError("当前系统不支持 Windows 开机自启")
+    import winreg
+
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+        if enabled:
+            winreg.SetValueEx(key, _RUN_VALUE_NAME, 0, winreg.REG_SZ, _autostart_command())
+        else:
+            try:
+                winreg.DeleteValue(key, _RUN_VALUE_NAME)
+            except FileNotFoundError:
+                pass
 
 
 class MainWindow(QMainWindow):
@@ -147,6 +297,7 @@ class MainWindow(QMainWindow):
         self._refresh_status()
         self._apply_launcher_language()
         QTimer.singleShot(200, self.refresh_env)
+        QTimer.singleShot(700, self._auto_start_services)
 
     def _setup_tray(self) -> None:
         self.tray = QSystemTrayIcon(app_icon(), self)
@@ -326,6 +477,26 @@ class MainWindow(QMainWindow):
         self.close_action_select.currentIndexChanged.connect(self._save_close_action)
         self.close_action_label = QLabel("关闭窗口时")
         form.addRow(self.close_action_label, self.close_action_select)
+
+        self.windows_autostart_check = AnimatedCheckBox("开机自动启动 Miku Cure")
+        self.windows_autostart_check.setChecked(_windows_autostart_enabled())
+        self.windows_autostart_check.toggled.connect(self._save_windows_autostart)
+        form.addRow(self.windows_autostart_check)
+
+        self.auto_monitor_check = AnimatedCheckBox(
+            "启动桌宠时自动连接摄像头并开启情绪监控"
+        )
+        config = _load_config()
+        self.auto_monitor_check.setChecked(
+            bool(
+                config.get(
+                    "camera-monitor-on-start",
+                    config.get("launcher-auto-monitor", True),
+                )
+            )
+        )
+        self.auto_monitor_check.toggled.connect(self._save_auto_monitor)
+        form.addRow(self.auto_monitor_check)
         lay.addLayout(form)
 
         folders = (
@@ -361,6 +532,39 @@ class MainWindow(QMainWindow):
             config["launcher-close-action"] = action
         _save_config(config)
 
+    def _save_windows_autostart(self, enabled: bool) -> None:
+        try:
+            _set_windows_autostart(enabled)
+            self.statusBar().showMessage(
+                "已开启开机自启" if enabled else "已关闭开机自启"
+            )
+        except OSError as exc:
+            self.windows_autostart_check.blockSignals(True)
+            self.windows_autostart_check.setChecked(not enabled)
+            self.windows_autostart_check.blockSignals(False)
+            QMessageBox.warning(self, APP_NAME, f"无法修改开机自启：\n{exc}")
+
+    def _save_auto_monitor(self, enabled: bool) -> None:
+        config = _load_config()
+        config["camera-monitor-on-start"] = enabled
+        config.pop("launcher-auto-monitor", None)
+        _save_config(config)
+        self.statusBar().showMessage(
+            "启动桌宠时将开启摄像头情绪监控"
+            if enabled
+            else "启动桌宠时摄像头保持关闭"
+        )
+
+    def _auto_start_services(self) -> None:
+        if os.environ.get("MIKU_SKIP_AUTO_START") == "1":
+            return
+        if self._env_worker and self._env_worker.isRunning():
+            QTimer.singleShot(400, self._auto_start_services)
+            return
+        if not self.services.any_running():
+            self.services.log("system", "启动器已就绪，自动启动后端与桌宠")
+            self._start_all()
+
     def _apply_launcher_language(self) -> None:
         lang = self.lang_select.currentData() if hasattr(self, "lang_select") else "zh"
         texts = {
@@ -370,6 +574,8 @@ class MainWindow(QMainWindow):
                 "tip": "语言设置同时应用于启动器和桌宠前端。",
                 "language": "语言", "close": "关闭窗口时",
                 "actions": ("每次询问", "最小化到托盘", "退出并停止服务"),
+                "windows_autostart": "开机自动启动 Miku Cure",
+                "auto_monitor": "启动桌宠时自动连接摄像头并开启情绪监控",
                 "folders": ("打开音乐文件夹", "打开跳舞（视频）文件夹", "打开表情文件夹"),
                 "show": "显示启动器", "exit": "退出（停止全部服务）",
                 "start": "一键启动", "stop": "停止服务",
@@ -380,6 +586,8 @@ class MainWindow(QMainWindow):
                 "tip": "言語設定はランチャーとデスクトップペットの両方に適用されます。",
                 "language": "言語", "close": "ウィンドウを閉じる時",
                 "actions": ("毎回確認", "トレイに最小化", "終了してサービスを停止"),
+                "windows_autostart": "Windows 起動時に Miku Cure を起動",
+                "auto_monitor": "ペット起動時にカメラへ接続して感情モニターを開始",
                 "folders": ("音楽フォルダーを開く", "ダンス（動画）フォルダーを開く", "表情フォルダーを開く"),
                 "show": "ランチャーを表示", "exit": "終了（全サービス停止）",
                 "start": "すべて起動", "stop": "サービス停止",
@@ -390,6 +598,8 @@ class MainWindow(QMainWindow):
                 "tip": "The language setting applies to both the launcher and desktop pet.",
                 "language": "Language", "close": "When closing",
                 "actions": ("Ask every time", "Minimize to tray", "Exit and stop services"),
+                "windows_autostart": "Start Miku Cure with Windows",
+                "auto_monitor": "Connect the camera and monitor emotions when the pet starts",
                 "folders": ("Open music folder", "Open dance video folder", "Open expression folder"),
                 "show": "Show launcher", "exit": "Exit (stop all services)",
                 "start": "Start all", "stop": "Stop services",
@@ -403,6 +613,8 @@ class MainWindow(QMainWindow):
         self.system_tip.setText(texts["tip"])
         self.lang_label.setText(texts["language"])
         self.close_action_label.setText(texts["close"])
+        self.windows_autostart_check.setText(texts["windows_autostart"])
+        self.auto_monitor_check.setText(texts["auto_monitor"])
         for index, value in enumerate(texts["actions"]):
             self.close_action_select.setItemText(index, value)
         for button, value in zip(self.folder_buttons, texts["folders"]):
@@ -536,15 +748,30 @@ class MainWindow(QMainWindow):
         elif ctrl.get("state") == "visible":
             self.services.pet_hidden = False
 
-        # Pet process exited (user closed window) → stop backend via our PID handle (no PowerShell)
-        if self.services.electron_proc is not None and self.services.electron_proc.poll() is not None:
+        stop_in_progress = bool(self._stop_worker and self._stop_worker.isRunning())
+
+        # During an intentional stop, the worker owns both process handles.
+        # Do not start a second linked stop or clear a handle underneath it.
+        if (
+            not stop_in_progress
+            and self.services.electron_proc is not None
+            and self.services.electron_proc.poll() is not None
+        ):
             if not self._linked_stop_done:
                 self._linked_stop_done = True
                 self.services.log("system", "检测到桌宠已退出，正在停止后端…")
                 self._begin_stop(exit_after=False, backend_only=True)
             self.services.electron_proc = None
             self.services.pet_hidden = False
-        elif ctrl.get("action") == "pet_closed" and not self._linked_stop_done and self.services.backend_running():
+        elif (
+            not stop_in_progress
+            and
+            ctrl.get("action") == "pet_closed"
+            and ctrl.get("launch_session") == self.services.launch_session
+            and self.services.electron_running()
+            and not self._linked_stop_done
+            and self.services.backend_running()
+        ):
             # Electron external-backend mode signals pet closed without killing backend itself
             self._linked_stop_done = True
             self.services.log("system", "桌宠发来关闭信号，停止后端…")
@@ -553,7 +780,11 @@ class MainWindow(QMainWindow):
                 self.services.electron_proc = None
             self.services.pet_hidden = False
 
-        if self.services.backend_proc is not None and self.services.backend_proc.poll() is not None:
+        if (
+            not stop_in_progress
+            and self.services.backend_proc is not None
+            and self.services.backend_proc.poll() is not None
+        ):
             self.services.backend_proc = None
 
         self.status_label.setText(self.services.status_text())
@@ -610,7 +841,7 @@ class MainWindow(QMainWindow):
         btn_tray = box.addButton("最小化到托盘", QMessageBox.ButtonRole.AcceptRole)
         btn_exit = box.addButton("退出并停止服务", QMessageBox.ButtonRole.DestructiveRole)
         box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-        remember = QCheckBox("记住我的选择")
+        remember = AnimatedCheckBox("记住我的选择")
         box.setCheckBox(remember)
         box.exec()
         chosen = box.clickedButton()

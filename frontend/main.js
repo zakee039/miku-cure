@@ -16,7 +16,7 @@ const {
 app.name = 'Miku Cure';
 // Note: Electron API is setAppUserModelId (lowercase d), not setAppUserModelID
 if (process.platform === 'win32' && typeof app.setAppUserModelId === 'function') {
-  app.setAppUserModelId('MikuCure.DesktopPet.1.1.1');
+  app.setAppUserModelId('MikuCure.DesktopPet.1.1.2');
 }
 
 /** Unified app icon: miku face from miku/icon.* */
@@ -64,6 +64,7 @@ function writePetState(extra = {}) {
       action: petHidden ? 'hide' : 'show',
       state: petHidden ? 'hidden' : 'visible',
       ts: Date.now(),
+      launch_session: process.env.MIKU_LAUNCH_SESSION || '',
       ...extra,
     };
     fs.writeFileSync(p, JSON.stringify(payload), 'utf8');
@@ -326,7 +327,7 @@ function killBackend() {
 
 function createWindow() {
   backendStopNotified = false;
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
 
   // Pet main window dimensions: exactly 208x208 (fits 200x200 video + margins & shadows)
   const windowWidth = 208;
@@ -335,8 +336,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: windowWidth,
     height: windowHeight,
-    x: screenWidth - windowWidth - 20, // Position at bottom right
-    y: screenHeight - windowHeight - 20,
+    x: primaryWorkArea.x + primaryWorkArea.width - windowWidth - 20,
+    y: primaryWorkArea.y + primaryWorkArea.height - windowHeight - 20,
     type: 'toolbar',
     frame: false,
     transparent: true,
@@ -398,13 +399,64 @@ ipcMain.on('hide-pet', () => {
   applyPetVisibility(true);
 });
 
+function positionAuxiliaryWindow(window) {
+  if (!window || window.isDestroyed() || !mainWindow || mainWindow.isDestroyed()) return;
+
+  const petBounds = mainWindow.getBounds();
+  const workArea = screen.getDisplayMatching(petBounds).workArea;
+  const windowBounds = window.getBounds();
+  const gap = 12;
+  const rightX = petBounds.x + petBounds.width + gap;
+  const leftX = petBounds.x - windowBounds.width - gap;
+  const fitsRight = rightX + windowBounds.width <= workArea.x + workArea.width;
+  const fitsLeft = leftX >= workArea.x;
+
+  let x;
+  if (fitsRight) {
+    x = rightX;
+  } else if (fitsLeft) {
+    x = leftX;
+  } else {
+    const rightSpace = workArea.x + workArea.width - (petBounds.x + petBounds.width);
+    const leftSpace = petBounds.x - workArea.x;
+    x = rightSpace >= leftSpace
+      ? workArea.x + workArea.width - windowBounds.width
+      : workArea.x;
+  }
+
+  let y = Math.round(
+    petBounds.y + petBounds.height / 2 - windowBounds.height / 2,
+  );
+  x = Math.max(
+    workArea.x,
+    Math.min(x, workArea.x + workArea.width - windowBounds.width),
+  );
+  y = Math.max(
+    workArea.y,
+    Math.min(y, workArea.y + workArea.height - windowBounds.height),
+  );
+  window.setPosition(Math.round(x), Math.round(y), false);
+}
+
+function showAuxiliaryWindow(window, temporaryTop = false) {
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  positionAuxiliaryWindow(window);
+  if (temporaryTop) window.setAlwaysOnTop(true, 'floating');
+  window.show();
+  window.focus();
+  window.moveTop();
+  if (temporaryTop) {
+    setTimeout(() => {
+      if (window && !window.isDestroyed()) window.setAlwaysOnTop(false);
+    }, 250);
+  }
+}
+
 // 2. IPC listener to open settings window in a separate container
 ipcMain.on('open-settings', () => {
   if (settingsWindow) {
-    if (settingsWindow.isMinimized()) settingsWindow.restore();
-    settingsWindow.show();
-    settingsWindow.focus();
-    settingsWindow.moveTop();
+    showAuxiliaryWindow(settingsWindow);
     return;
   }
 
@@ -413,6 +465,7 @@ ipcMain.on('open-settings', () => {
       width: 720,
       height: 480,
       title: "Miku Cure 设置",
+      show: false,
       resizable: false,
       minimizable: true,
       maximizable: false,
@@ -425,9 +478,7 @@ ipcMain.on('open-settings', () => {
       console.error('[Main] Settings window failed to load:', error);
     });
     settingsWindow.once('ready-to-show', () => {
-      settingsWindow.show();
-      settingsWindow.focus();
-      settingsWindow.moveTop();
+      showAuxiliaryWindow(settingsWindow);
     });
 
     settingsWindow.on('closed', () => {
@@ -449,7 +500,7 @@ ipcMain.on('model-changed', (event, selectedModel) => {
 // Independent Report Window
 ipcMain.on('open-report', (event, data) => {
   if (reportWindow) {
-    reportWindow.focus();
+    showAuxiliaryWindow(reportWindow);
     reportWindow.webContents.send('load-report', data);
     return;
   }
@@ -458,6 +509,7 @@ ipcMain.on('open-report', (event, data) => {
     width: 400,
     height: 520,
     title: "专注周期总结报告",
+    show: false,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -466,7 +518,10 @@ ipcMain.on('open-report', (event, data) => {
   });
 
   reportWindow.setMenu(null);
-  reportWindow.loadFile('report.html');
+  reportWindow.loadFile(path.join(__dirname, 'report.html'));
+  reportWindow.once('ready-to-show', () => {
+    showAuxiliaryWindow(reportWindow);
+  });
   
   reportWindow.webContents.on('did-finish-load', () => {
     reportWindow.webContents.send('load-report', data);
@@ -483,54 +538,62 @@ ipcMain.on('action-from-report', (event, action) => {
   }
 });
 
-ipcMain.on('analyze-report-request', (event, prompt, displayPrompt) => {
-  if (!chatWindow) {
-    chatWindow = new BrowserWindow({
-      width: 400,
-      height: 520,
-      title: "Miku Chat",
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      icon: APP_ICON,
-      webPreferences: securePrefs()
-    });
-    chatWindow.setMenu(null);
-    chatWindow.loadFile('chat.html');
-    chatWindow.on('closed', () => {
-      chatWindow = null;
-    });
-    
-    chatWindow.webContents.on('did-finish-load', () => {
-      chatWindow.webContents.send('populate-chat-input', prompt, displayPrompt);
-    });
-  } else {
-    chatWindow.focus();
-    chatWindow.webContents.send('populate-chat-input', prompt, displayPrompt);
-  }
-});
+function showChatWindow() {
+  showAuxiliaryWindow(chatWindow, true);
+}
 
-// ── Chat Window IPC ──
-ipcMain.on('open-chat', () => {
-  if (chatWindow) {
-    chatWindow.focus();
+function openChatWindow(onLoaded = null) {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    showChatWindow();
+    if (onLoaded) {
+      if (chatWindow.webContents.isLoading()) {
+        chatWindow.webContents.once('did-finish-load', onLoaded);
+      } else {
+        onLoaded();
+      }
+    }
     return;
   }
+
   chatWindow = new BrowserWindow({
     width: 400,
     height: 520,
     title: "Miku Chat",
+    show: false,
     resizable: false,
-    minimizable: false,
+    minimizable: true,
     maximizable: false,
     icon: APP_ICON,
     webPreferences: securePrefs()
   });
   chatWindow.setMenu(null);
-  chatWindow.loadFile('chat.html');
+  chatWindow.once('ready-to-show', showChatWindow);
+  chatWindow.webContents.once('did-finish-load', () => {
+    showChatWindow();
+    if (onLoaded) onLoaded();
+  });
+  chatWindow.webContents.on('did-fail-load', (event, code, description) => {
+    console.error(`[Main] Chat window failed to load (${code}): ${description}`);
+  });
+  chatWindow.loadFile(path.join(__dirname, 'chat.html')).catch((error) => {
+    console.error('[Main] Chat window failed to open:', error);
+  });
   chatWindow.on('closed', () => {
     chatWindow = null;
   });
+}
+
+ipcMain.on('analyze-report-request', (event, prompt, displayPrompt) => {
+  openChatWindow(() => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('populate-chat-input', prompt, displayPrompt);
+    }
+  });
+});
+
+// ── Chat Window IPC ──
+ipcMain.on('open-chat', () => {
+  openChatWindow();
 });
 
 ipcMain.on('chat-message', (event, text) => {
@@ -583,18 +646,25 @@ ipcMain.on('size-changed', (event, size) => {
 
 // 5. Dynamic window resize based on video content
 ipcMain.on('resize-window', (event, { contentWidth, contentHeight, scale }) => {
-  if (!mainWindow) return;
-  const width = Math.round((contentWidth + 8) * scale);
-  const height = Math.round((contentHeight + 8) * scale);
-  
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   const bounds = mainWindow.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const workArea = display.workArea;
+  const width = Math.min(
+    Math.round((contentWidth + 8) * scale),
+    workArea.width,
+  );
+  const height = Math.min(
+    Math.round((contentHeight + 8) * scale),
+    workArea.height,
+  );
+
   const cx = bounds.x + bounds.width / 2;
   const cy = bounds.y + bounds.height / 2;
-  
+
   let x = Math.round(cx - width / 2);
   let y = Math.round(cy - height / 2);
-  
-  const workArea = screen.getPrimaryDisplay().workArea;
+
   if (x + width > workArea.x + workArea.width) x = workArea.x + workArea.width - width;
   if (y + height > workArea.y + workArea.height) y = workArea.y + workArea.height - height;
   if (x < workArea.x) x = workArea.x;
@@ -657,6 +727,10 @@ ipcMain.on('start-backend', (event, pythonExe) => {
   killBackend();
 
   const backendDir = getBackendDir();
+  const config = loadConfig();
+  const monitorOnStart = config['camera-monitor-on-start']
+    ?? config['launcher-auto-monitor']
+    ?? true;
   const py = pythonExe || resolvePython();
   const mainPy = path.join(backendDir, 'main.py');
   if (!fs.existsSync(mainPy)) {
@@ -673,6 +747,7 @@ ipcMain.on('start-backend', (event, pythonExe) => {
       PYTHONUNBUFFERED: '1',
       MIKU_USER_DIR: getUserDir(),
       MIKU_RESOURCES: path.dirname(backendDir),
+      MIKU_CAMERA_MONITOR_ON_START: monitorOnStart ? '1' : '0',
     }
   });
   backendPid = backendProcess.pid;

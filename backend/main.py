@@ -24,6 +24,7 @@ focus_start_time = 0
 focus_paused_seconds = 0.0
 _pause_started_at = None
 current_lang = 'zh'
+camera_monitor_on_start = os.environ.get('MIKU_CAMERA_MONITOR_ON_START', '1') != '0'
 
 negative_emotions_set = {'sadness', 'anger', 'fear', 'disgust'}
 emotion_window = collections.deque()
@@ -48,6 +49,16 @@ _infer_seq = 0
 
 # Let LLM reuse the shared pool for memory summarization
 llm.set_executor(executor)
+
+
+def _camera_status_payload(error=None):
+    payload = {
+        'type': 'camera_status',
+        'connected': bool(camera.is_running),
+    }
+    if error:
+        payload['error'] = error
+    return payload
 
 
 def _accumulate_pause():
@@ -176,13 +187,18 @@ def handle_frontend_message(data):
         })
 
     elif msg_type == 'toggle_camera':
-        state = data.get('state', True)
-        if state:
-            camera.start()
-            print("Backend: Camera started by user.")
+        requested_state = bool(data.get('state', True))
+        error = None
+        if requested_state:
+            if camera.start():
+                print("Backend: Camera started by user.")
+            else:
+                error = 'camera_open_failed'
+                print("Backend: Camera could not be started by user.")
         else:
             camera.stop()
             print("Backend: Camera stopped by user.")
+        ws_server.send_to_all(_camera_status_payload(error))
 
     elif msg_type == 'chat_request':
         text = data.get('text', '')
@@ -458,8 +474,9 @@ if __name__ == '__main__':
     def on_client_connect():
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.1.1",
+            "version": "1.1.2",
             "model": detector.model_type,
+            "camera_enabled": bool(camera.is_running),
             "face_engine": (
                 "mp_tasks" if getattr(detector, "mp_tasks_face", None)
                 else ("mp_legacy" if detector.mp_face else "haar")
@@ -481,16 +498,20 @@ if __name__ == '__main__':
         print("Hint: set MIKU_WS_PORT to a free port, or check Windows excluded ranges:")
         print("      netsh interface ipv4 show excludedportrange protocol=tcp")
 
-    cam_ok = camera.start()
-    if not cam_ok:
-        print("Warning: Camera failed to open — backend continues (toggle_camera / mock still usable).")
+    if camera_monitor_on_start:
+        cam_ok = camera.start()
+        if not cam_ok:
+            print("Warning: Camera failed to open — backend continues (toggle_camera / mock still usable).")
+    else:
+        print("Backend: Camera emotion monitoring disabled at startup.")
 
     time.sleep(0.3)
     if getattr(ws_server, 'bind_ok', False):
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.1.1",
+            "version": "1.1.2",
             "model": detector.model_type,
+            "camera_enabled": bool(camera.is_running),
         })
         print("Backend: Ready signal broadcast.")
     else:

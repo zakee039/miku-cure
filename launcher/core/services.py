@@ -7,6 +7,7 @@ import re
 import subprocess
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -74,7 +75,11 @@ class ServiceManager:
     backend_proc: subprocess.Popen | None = None
     electron_proc: subprocess.Popen | None = None
     pet_hidden: bool = False
+    launch_session: str = ""
     _pumps: list[threading.Thread] = field(default_factory=list)
+    _stop_lock: threading.RLock = field(
+        default_factory=threading.RLock, init=False, repr=False
+    )
 
     def backend_running(self) -> bool:
         return self.backend_proc is not None and self.backend_proc.poll() is None
@@ -112,6 +117,15 @@ class ServiceManager:
         env["MIKU_USER_DIR"] = str(USER_DIR)
         env["MIKU_RESOURCES"] = str(PROJECT_ROOT)
         env["MIKU_PROJECT_ROOT"] = str(PROJECT_ROOT)
+        try:
+            config = json.loads((USER_DIR / "config.json").read_text(encoding="utf-8"))
+        except Exception:
+            config = {}
+        monitor_on_start = config.get(
+            "camera-monitor-on-start",
+            config.get("launcher-auto-monitor", True),
+        )
+        env["MIKU_CAMERA_MONITOR_ON_START"] = "1" if monitor_on_start else "0"
         env.setdefault("CUDA_VISIBLE_DEVICES", "")
         env.setdefault("PYTHONIOENCODING", "utf-8")
 
@@ -159,11 +173,18 @@ class ServiceManager:
         env["MIKU_RESOURCES"] = str(PROJECT_ROOT)
         env["MIKU_PROJECT_ROOT"] = str(PROJECT_ROOT)
         env["MIKU_EXTERNAL_BACKEND"] = "1"
+        if not self.launch_session:
+            self.launch_session = uuid.uuid4().hex
+        env["MIKU_LAUNCH_SESSION"] = self.launch_session
         env.setdefault("ELECTRON_NO_ATTACH_CONSOLE", "1")
 
         # Reset pet control state
         self.pet_hidden = False
-        write_pet_command("show", state="visible")
+        write_pet_command(
+            "show",
+            state="visible",
+            launch_session=self.launch_session,
+        )
 
         cmd = [str(electron), str(FRONTEND_DIR)]
         self.log("system", f"启动桌宠（无控制台，子进程）：{electron}")
@@ -197,6 +218,15 @@ class ServiceManager:
                 progress(msg, pct)
             self.log("system", msg)
 
+        # Invalidate any pet_closed left by a previous Electron process before
+        # the backend becomes visible to the launcher's status timer.
+        self.launch_session = uuid.uuid4().hex
+        write_pet_command(
+            "starting",
+            state="starting",
+            launch_session=self.launch_session,
+        )
+
         _p("正在启动后端服务…", 20)
         ok_b = self.start_backend()
         if not ok_b:
@@ -222,7 +252,9 @@ class ServiceManager:
             self.log("system", "桌宠未运行，无法隐藏")
             return
         self.pet_hidden = True
-        write_pet_command("hide", state="hidden")
+        write_pet_command(
+            "hide", state="hidden", launch_session=self.launch_session
+        )
         self.log("system", "已请求隐藏桌宠窗口")
 
     def show_pet(self) -> None:
@@ -230,7 +262,9 @@ class ServiceManager:
             self.log("system", "桌宠未运行，无法显示")
             return
         self.pet_hidden = False
-        write_pet_command("show", state="visible")
+        write_pet_command(
+            "show", state="visible", launch_session=self.launch_session
+        )
         self.log("system", "已请求显示桌宠窗口")
 
     def toggle_pet(self) -> None:
@@ -241,53 +275,60 @@ class ServiceManager:
 
     def stop_backend_only(self) -> None:
         """Stop Python backend using only tracked PIDs (no PowerShell)."""
-        killed_pids: set[int] = set()
-        if self.backend_proc and self.backend_proc.poll() is None:
-            pid = self.backend_proc.pid
-            _kill_tree(pid)
-            if self.backend_proc.poll() is None:
+        with self._stop_lock:
+            killed_pids: set[int] = set()
+            proc = self.backend_proc
+            if proc and proc.poll() is None:
+                pid = proc.pid
+                _kill_tree(pid)
+                if proc.poll() is None:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=1)
+                    except Exception:
+                        pass
+                killed_pids.add(pid)
+                self.log("system", f"已结束后端 PID={pid}")
+            if self.backend_proc is proc:
+                self.backend_proc = None
+
+            pid_file = USER_DIR / "backend.pid"
+            if pid_file.exists():
                 try:
-                    self.backend_proc.kill()
-                    self.backend_proc.wait(timeout=1)
+                    raw = pid_file.read_text(encoding="utf-8").strip()
+                    if raw.isdigit() and int(raw) not in killed_pids:
+                        _kill_tree(int(raw))
+                    pid_file.unlink(missing_ok=True)
                 except Exception:
                     pass
-            killed_pids.add(pid)
-            self.log("system", f"已结束后端 PID={pid}")
-        self.backend_proc = None
 
-        pid_file = USER_DIR / "backend.pid"
-        if pid_file.exists():
+    def stop_all(self) -> None:
+        with self._stop_lock:
+            self.log("system", "正在停止服务…")
+            # Ask electron to quit gracefully first
             try:
-                raw = pid_file.read_text(encoding="utf-8").strip()
-                if raw.isdigit() and int(raw) not in killed_pids:
-                    _kill_tree(int(raw))
-                pid_file.unlink(missing_ok=True)
+                write_pet_command("quit", launch_session=self.launch_session)
+                time.sleep(0.3)
             except Exception:
                 pass
 
-    def stop_all(self) -> None:
-        self.log("system", "正在停止服务…")
-        # Ask electron to quit gracefully first
-        try:
-            write_pet_command("quit")
-            time.sleep(0.3)
-        except Exception:
-            pass
+            proc = self.electron_proc
+            if proc and proc.poll() is None:
+                pid = proc.pid
+                _kill_tree(pid)
+                if proc.poll() is None:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=1)
+                    except Exception:
+                        pass
+                self.log("system", f"已结束 Electron PID={pid}")
+            if self.electron_proc is proc:
+                self.electron_proc = None
+            self.pet_hidden = False
 
-        if self.electron_proc and self.electron_proc.poll() is None:
-            _kill_tree(self.electron_proc.pid)
-            if self.electron_proc.poll() is None:
-                try:
-                    self.electron_proc.kill()
-                    self.electron_proc.wait(timeout=1)
-                except Exception:
-                    pass
-            self.log("system", f"已结束 Electron PID={self.electron_proc.pid}")
-        self.electron_proc = None
-        self.pet_hidden = False
-
-        self.stop_backend_only()
-        self.log("system", "服务已停止")
+            self.stop_backend_only()
+            self.log("system", "服务已停止")
 
     def status_text(self) -> str:
         b = "运行中" if self.backend_running() else "已停止"
