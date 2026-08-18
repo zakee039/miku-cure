@@ -12,6 +12,8 @@
 
 > 让 Miku 陪着你学习，实时感知你的微表情情绪，在你疲惫或低落时轻轻为你放一首歌，或者跳支舞说一句「加油哦 ✨」
 
+[个人主页](https://zakee.fun) · [Buy me a coffee](https://ifdian.net/a/zakee/plan)
+
 </div>
 
 ---
