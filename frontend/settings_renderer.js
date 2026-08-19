@@ -188,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const selected = list.some((model) => model.id === savedCharacterModel)
       ? savedCharacterModel
-      : list[0].id;
+      : (list.find((model) => model.type === 'live2d') || list[0]).id;
     characterModelSelect.value = selected;
     if (selected !== savedCharacterModel) {
       ipcRenderer.send('set-config', { key: 'miku-character-model', val: selected });

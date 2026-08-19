@@ -43,6 +43,7 @@ assert.doesNotThrow(() => validateBackendDescriptor(descriptor, {
   now: now + 30 * 24 * 60 * 60 * 1000,
 }));
 assert.strictEqual(normalizeExternalUrl('https://github.com/zakee039/miku-cure'), 'https://github.com/zakee039/miku-cure');
+assert.strictEqual(normalizeExternalUrl('https://piapro.jp/t/KPU3'), 'https://piapro.jp/t/KPU3');
 assert.strictEqual(normalizeExternalUrl('https://space.bilibili.com/131661224'), 'https://space.bilibili.com/131661224');
 assert.strictEqual(normalizeExternalUrl('https://www.bilibili.com/video/BV1B1Mo67E3g'), 'https://www.bilibili.com/video/BV1B1Mo67E3g');
 assert.strictEqual(normalizeExternalUrl('https://example.com/'), null);

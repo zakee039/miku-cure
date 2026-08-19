@@ -7,6 +7,7 @@ const CHAT_REPLY_MAX = 50000;
 const ALLOWED_EXTERNAL_HOSTS = new Set([
   'github.com',
   'www.github.com',
+  'piapro.jp',
   'space.bilibili.com',
   'www.bilibili.com',
   'x.com',

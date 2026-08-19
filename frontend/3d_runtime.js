@@ -11,6 +11,8 @@
   let scene;
   let camera;
   let mmdModel;
+  let mmdFrame;
+  let mmdKeyLight;
   let live2dApp;
   let live2dModel;
   let frameId;
@@ -32,11 +34,7 @@
     '玄宝 Miku/miku/miku.model3.json': { horizontalOffset: -0.24 },
   });
 
-  // The bundled model explicitly supports disabling its default watermark.
-  // These are its watermark, hotkey hint, attribution, and reference layers.
-  const LIVE2D_HIDDEN_OVERLAY_PARTS = Object.freeze([
-    'Part18', 'Part17', 'Part77', 'PartSketch0',
-  ]);
+  const WATERMARK_EXPRESSION_NAME = /(?:watermark|水印)/i;
 
   function setStatus(message) {
     if (status) status.textContent = message;
@@ -94,8 +92,57 @@
   function applyMmdView() {
     if (!mmdModel || !camera) return;
     const view = currentView();
-    mmdModel.position.x = view.x * 20;
-    camera.position.z = 34 / view.scale;
+    const frame = mmdFrame || {
+      baseX: 0, baseY: -13, targetX: 0, targetY: 10, targetZ: 0,
+      distance: 34, xRange: 20, yRange: 20,
+    };
+    mmdModel.position.x = frame.baseX + view.x * frame.xRange;
+    mmdModel.position.y = frame.baseY - view.y * frame.yRange;
+    camera.position.set(frame.targetX, frame.targetY, frame.targetZ + frame.distance / view.scale);
+    camera.lookAt(frame.targetX, frame.targetY, frame.targetZ);
+    if (mmdKeyLight) {
+      mmdKeyLight.position.copy(camera.position);
+      mmdKeyLight.position.y += frame.yRange * 0.25;
+      mmdKeyLight.target.position.set(frame.targetX, frame.targetY, frame.targetZ);
+      mmdKeyLight.target.updateMatrixWorld();
+    }
+  }
+
+  function frameMmdUpperBody(Box3, Vector3) {
+    if (!mmdModel || !camera) return;
+    mmdModel.updateMatrixWorld(true);
+    const bounds = new Box3().setFromObject(mmdModel);
+    const size = bounds.getSize(new Vector3());
+    const center = bounds.getCenter(new Vector3());
+    if (!Number.isFinite(size.x) || !Number.isFinite(size.y) || size.x <= 0 || size.y <= 0) return;
+
+    // Keep the upper 70% of differently sized PMX models inside the pet window.
+    const visibleHeight = size.y * 0.76;
+    const targetY = bounds.max.y - size.y * 0.33;
+    mmdFrame = {
+      baseX: mmdModel.position.x,
+      baseY: mmdModel.position.y,
+      targetX: center.x,
+      targetY,
+      targetZ: center.z,
+      distance: visibleHeight / (2 * Math.tan(camera.fov * Math.PI / 360)),
+      xRange: Math.max(size.x * 0.5, 1),
+      yRange: Math.max(size.y * 0.5, 1),
+    };
+  }
+
+  function tuneMmdMaterials(model) {
+    model.traverse((object) => {
+      if (!object.isMesh) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        if (!material) continue;
+        material.color?.multiplyScalar?.(0.82);
+        material.emissive?.multiplyScalar?.(0.25);
+        if ('emissiveIntensity' in material) material.emissiveIntensity = 0.5;
+        material.needsUpdate = true;
+      }
+    });
   }
 
   function bindAdjustmentEvents(view) {
@@ -172,7 +219,7 @@
     resizeHandler = undefined;
     const oldRenderer = renderer;
     const oldLive2dApp = live2dApp;
-    renderer = scene = camera = mmdModel = live2dApp = live2dModel = undefined;
+    renderer = scene = camera = mmdModel = mmdFrame = mmdKeyLight = live2dApp = live2dModel = undefined;
     loading = false;
     layer?.classList.remove('has-model');
     try {
@@ -195,7 +242,9 @@
     for (const modelId of Object.keys(characterViews)) {
       if (!availableIds.has(modelId)) delete characterViews[modelId];
     }
-    const selected = models.find((model) => model.id === selectedModelId) || models[0];
+    const selected = models.find((model) => model.id === selectedModelId)
+      || models.find((model) => model.type === 'live2d')
+      || models[0];
     selectedModelId = selected.id;
     return selected;
   }
@@ -225,6 +274,26 @@
     live2dModel.y = height * (0.06 + view.y) - renderedBounds.y;
   }
 
+  async function getWatermarkParameterIds(expressions) {
+    const watermarkExpressions = expressions.filter((expression) => (
+      WATERMARK_EXPRESSION_NAME.test(expression.name)
+    ));
+    const definitions = await Promise.all(watermarkExpressions.map(async (expression) => {
+      try {
+        const response = await fetch(expression.url);
+        return response.ok ? response.json() : null;
+      } catch (error) {
+        console.warn('Unable to read Live2D watermark expression:', error);
+        return null;
+      }
+    }));
+    return new Set(definitions.flatMap((definition) => (
+      Array.isArray(definition?.Parameters)
+        ? definition.Parameters.map((parameter) => parameter?.Id).filter((id) => typeof id === 'string')
+        : []
+    )));
+  }
+
   async function loadLive2D(entry, token, view) {
     if (!window.PIXI?.live2d?.Live2DModel || !window.Live2DCubismCore) {
       throw new Error('Live2D runtime dependency was not loaded');
@@ -237,6 +306,8 @@
 
     const motions = Array.isArray(entry.motions) ? entry.motions : [];
     const expressions = Array.isArray(entry.expressions) ? entry.expressions : [];
+    const watermarkParameterIds = await getWatermarkParameterIds(expressions);
+    if (token !== generation || requestedMode !== '3d') return;
     manifest.url = entry.url;
     manifest.FileReferences = manifest.FileReferences || {};
     manifest.FileReferences.Motions = {
@@ -271,17 +342,18 @@
     live2dModel = model;
     live2dFraming = LIVE2D_FRAMING[entry.id] || { horizontalOffset: 0 };
     app.stage.addChild(model);
-    // Keep source assets intact and disable the model's opt-out watermark
-    // layers in memory on every frame, so motions cannot restore them.
+    // Respect model-provided watermark controls without modifying source assets.
+    // Reapply after every model update so motions cannot re-enable the setting.
     const coreModel = model.internalModel?.coreModel;
-    const hideDefaultWatermark = () => {
-      coreModel?.setParameterValueById?.('Param137', 0);
-      for (const partId of LIVE2D_HIDDEN_OVERLAY_PARTS) {
-        coreModel?.setPartOpacityById?.(partId, 0);
+    const disableWatermark = () => {
+      for (const parameterId of watermarkParameterIds) {
+        coreModel?.setParameterValueById?.(parameterId, 0);
       }
     };
-    app.ticker.add(hideDefaultWatermark);
-    hideDefaultWatermark();
+    if (watermarkParameterIds.size) {
+      app.ticker.add(disableWatermark);
+      disableWatermark();
+    }
     fitLive2D();
     resizeHandler = fitLive2D;
     window.addEventListener('resize', resizeHandler, { passive: true });
@@ -291,7 +363,7 @@
 
   async function loadMmd(entry, token, view) {
     setStatus('正在加载 MMD 模型...');
-    const [{ WebGLRenderer, Scene, PerspectiveCamera, AmbientLight, DirectionalLight, Clock }, { MMDLoader }] = await Promise.all([
+    const [{ WebGLRenderer, Scene, PerspectiveCamera, AmbientLight, DirectionalLight, Clock, Box3, Vector3 }, { MMDLoader }] = await Promise.all([
       import('./node_modules/three/build/three.module.js'),
       import('./node_modules/three/examples/jsm/loaders/MMDLoader.js'),
     ]);
@@ -303,18 +375,21 @@
     scene = new Scene();
     camera = new PerspectiveCamera(28, 1, 0.1, 1000);
     camera.position.set(0, 10, 34);
-    scene.add(new AmbientLight(0xffffff, 1.7));
-    const keyLight = new DirectionalLight(0xffffff, 1.4);
-    keyLight.position.set(5, 12, 14);
-    scene.add(keyLight);
+    // MMD toon materials combine ambient and directional lighting. Keep both
+    // below full intensity so light-colored textures retain their detail.
+    scene.add(new AmbientLight(0xffffff, 0.08));
+    mmdKeyLight = new DirectionalLight(0xffffff, 0.9);
+    scene.add(mmdKeyLight, mmdKeyLight.target);
 
     const loader = new MMDLoader();
     loader.load(entry.url, (loadedModel) => {
       if (token !== generation || requestedMode !== '3d') return;
       mmdModel = loadedModel;
-      mmdModel.position.set(0, -13, 0);
-      mmdModel.rotation.y = Math.PI;
+      mmdModel.position.set(0, 0, 0);
+      mmdModel.rotation.y = 0;
       scene.add(mmdModel);
+      tuneMmdMaterials(mmdModel);
+      frameMmdUpperBody(Box3, Vector3);
       applyMmdView();
       layer?.classList.add('has-model');
       console.info('[Character] MMD model loaded:', entry.name);
@@ -327,8 +402,10 @@
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
         const elapsed = clock.getElapsedTime();
-        mmdModel.position.y = -13 + currentView().y * 20 + Math.sin(elapsed * 1.5) * 0.12;
-        mmdModel.rotation.y += (Math.PI + yawTarget - mmdModel.rotation.y) * 0.035;
+        const frame = mmdFrame || { baseY: -13, yRange: 20 };
+        mmdModel.position.y = frame.baseY - currentView().y * frame.yRange
+          + Math.sin(elapsed * 1.5) * 0.12;
+        mmdModel.rotation.y += (yawTarget - mmdModel.rotation.y) * 0.035;
         renderer.render(scene, camera);
         frameId = requestAnimationFrame(draw);
       };
