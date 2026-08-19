@@ -2,6 +2,8 @@
 // Miku Cure 三语翻译模块 (中文 / 日本語 / English)
 // Usage: const { t, applyI18n, getCurrentLang } = require('./i18n');
 
+(() => {
+
 const translations = {
   /* ── 中文 ─────────────────────────────────────────────────── */
   zh: {
@@ -25,6 +27,10 @@ const translations = {
     'general.title':       '通用设置',
     'general.size.label':  '窗口大小',
     'general.lang.label':  '界面语言',
+    'general.display_mode.label': '角色显示模式',
+    'general.display_mode.tip': '3D 模式需要将合法的 .pmx 或 .pmd 模型及其纹理放入 miku/model3d。',
+    'display_mode.media':  '媒体表情包',
+    'display_mode.3d':     '3D 桌宠',
     'size.small':          '小（67%）',
     'size.medium':         '中（默认）',
     'size.large':          '大（150%）',
@@ -34,8 +40,8 @@ const translations = {
 
     // About Page
     'about.title':         '关于',
-    'about.desc':          '一款由实时面部表情识别和 DeepSeek AI 驱动的桌面情绪伴侣。',
-    'about.privacy':       '🔒 本系统没有服务器，不会上传任何数据。',
+    'about.desc':          '一款由实时面部表情识别和可配置的 OpenAI 兼容在线 LLM 驱动的桌面情绪伴侣。',
+    'about.privacy':       '🔒 摄像头与情绪识别在本机处理；启用在线 LLM 后，聊天和报告内容会发送至您配置的 API 服务。',
     'about.thanks.label':  '特别鸣谢',
     'about.thanks.desc':   '感谢 miratsu169 的贡献与支持。',
     'about.github':        'github.com/momo325/miku-cure',
@@ -70,6 +76,11 @@ const translations = {
     'chat.placeholder':    '说点什么...',
     'chat.send':           '发送',
     'chat.analyze_report_msg': 'miku，miku，帮我分析一下报告',
+    'chat.error.timeout':  '聊天服务暂时没有响应，请稍后重试。',
+    'chat.error.invalid_text': '消息为空或过长，请缩短后重试。',
+    'chat.error.invalid_context': '附加内容过长，无法发送。',
+    'chat.error.failed':   '聊天服务暂时不可用，请稍后重试。',
+    'chat.error.queue_full': '待发送消息过多，请稍后重试。',
 
     // Tooltips
     'tip.emotion_badge':   '点击断开/连接摄像头',
@@ -175,6 +186,10 @@ const translations = {
     'general.title':       '一般設定',
     'general.size.label':  'ウィンドウサイズ',
     'general.lang.label':  '表示言語',
+    'general.display_mode.label': 'キャラクター表示モード',
+    'general.display_mode.tip': '3D モードでは、使用許諾のある .pmx または .pmd モデルとテクスチャを miku/model3d に入れてください。',
+    'display_mode.media':  'メディア表情',
+    'display_mode.3d':     '3D デスクトップペット',
     'size.small':          '小（67%）',
     'size.medium':         '中（デフォルト）',
     'size.large':          '大（150%）',
@@ -184,8 +199,8 @@ const translations = {
 
     // About Page
     'about.title':         'について',
-    'about.desc':          'リアルタイム表情認識と DeepSeek AI を搭載したデスクトップ感情コンパニオン。',
-    'about.privacy':       '🔒 サーバーがなく、データは一切アップロードされません。',
+    'about.desc':          'リアルタイム表情認識と、設定可能な OpenAI 互換オンライン LLM を搭載したデスクトップ感情コンパニオン。',
+    'about.privacy':       '🔒 カメラと感情認識は端末内で処理されます。オンライン LLM を使う場合、会話とレポートは設定した API に送信されます。',
     'about.thanks.label':  'スペシャルサンクス',
     'about.thanks.desc':   'miratsu169 さんのご貢献とご支援に感謝します。',
     'about.github':        'github.com/momo325/miku-cure',
@@ -220,6 +235,11 @@ const translations = {
     'chat.placeholder':    '何か話して...',
     'chat.send':           '送信',
     'chat.analyze_report_msg': 'ミク、ミク、レポートを分析して',
+    'chat.error.timeout':  'チャットサービスから応答がありません。しばらくしてから再試行してください。',
+    'chat.error.invalid_text': 'メッセージが空か長すぎます。短くして再試行してください。',
+    'chat.error.invalid_context': '追加内容が長すぎるため送信できません。',
+    'chat.error.failed':   'チャットサービスを一時的に利用できません。しばらくしてから再試行してください。',
+    'chat.error.queue_full': '送信待ちのメッセージが多すぎます。しばらくしてから再試行してください。',
 
     // Tooltips
     'tip.emotion_badge':   'クリックでカメラ切断/接続',
@@ -325,6 +345,10 @@ const translations = {
     'general.title':       'General Settings',
     'general.size.label':  'Window Size',
     'general.lang.label':  'Interface Language',
+    'general.display_mode.label': 'Character Display Mode',
+    'general.display_mode.tip': '3D mode requires a licensed .pmx or .pmd model and its textures in miku/model3d.',
+    'display_mode.media':  'Media expressions',
+    'display_mode.3d':     '3D desktop pet',
     'size.small':          'Small (67%)',
     'size.medium':         'Medium (Default)',
     'size.large':          'Large (150%)',
@@ -334,8 +358,8 @@ const translations = {
 
     // About Page
     'about.title':         'About',
-    'about.desc':          'A desktop emotion companion powered by real-time facial expression recognition and DeepSeek AI.',
-    'about.privacy':       '🔒 No server. No data is ever uploaded.',
+    'about.desc':          'A desktop emotion companion powered by real-time facial expression recognition and a configurable OpenAI-compatible online LLM.',
+    'about.privacy':       '🔒 Camera and emotion recognition stay local. Online LLM use sends chat and report content to your configured API provider.',
     'about.thanks.label':  'Special Thanks',
     'about.thanks.desc':   'Thanks to miratsu169 for their contribution and support.',
     'about.github':        'github.com/momo325/miku-cure',
@@ -370,6 +394,11 @@ const translations = {
     'chat.placeholder':    'Say something...',
     'chat.send':           'Send',
     'chat.analyze_report_msg': 'Miku, Miku, please analyze my report',
+    'chat.error.timeout':  'The chat service did not respond. Please try again later.',
+    'chat.error.invalid_text': 'The message is empty or too long. Shorten it and try again.',
+    'chat.error.invalid_context': 'The additional context is too long to send.',
+    'chat.error.failed':   'The chat service is temporarily unavailable. Please try again later.',
+    'chat.error.queue_full': 'Too many messages are waiting to send. Please try again later.',
 
     // Tooltips
     'tip.emotion_badge':   'Click to toggle camera',
@@ -456,9 +485,20 @@ const translations = {
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
-/** Get the currently saved language code (defaults to 'zh'). */
+let currentLang = 'zh';
+try {
+  const configured = window.miku?.ipc?.sendSync('get-config', 'miku-language');
+  if (['zh', 'ja', 'en'].includes(configured)) currentLang = configured;
+} catch {}
+
+/** Get the cached language code. IPC is only used once when this script loads. */
 function getCurrentLang() {
-  try { return require('electron').ipcRenderer.sendSync('get-config', 'miku-language') || 'zh'; } catch { return 'zh'; }
+  return currentLang;
+}
+
+function setCurrentLang(lang) {
+  if (['zh', 'ja', 'en'].includes(lang)) currentLang = lang;
+  return currentLang;
 }
 
 /**
@@ -482,6 +522,7 @@ function t(key, vars) {
  * in the current document. Safe to call on DOMContentLoaded or after language change.
  */
 function applyI18n() {
+  if (typeof document === 'undefined') return;
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
     el.textContent = t(key);
@@ -494,4 +535,7 @@ function applyI18n() {
   });
 }
 
-module.exports = { translations, t, getCurrentLang, applyI18n };
+const MikuI18n = Object.freeze({ translations, t, getCurrentLang, setCurrentLang, applyI18n });
+if (typeof window !== 'undefined') window.MikuI18n = MikuI18n;
+if (typeof module !== 'undefined' && module.exports) module.exports = MikuI18n;
+})();

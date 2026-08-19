@@ -14,6 +14,11 @@
 # ── 密钥与环境 ───────────────────────────────────────
 .env
 .env.*
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
 
 # ── 用户数据（API Key、记忆、LoRA、运行时控制）──────
 user/
@@ -46,6 +51,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.hypothesis/
 .coverage
 htmlcov/
 *.egg-info/
@@ -59,6 +65,9 @@ train/datasets
 
 # ── Node.js / Electron ───────────────────────────────
 node_modules/
+.npm-cache/
+.npm/
+.electron-cache/
 frontend/dist/
 train/frontend/dist/
 dist/
@@ -80,6 +89,9 @@ desktop.ini
 # ── 可选：媒体资源过大时取消注释 ─────────────────────
 # miku/
 
+# Character model assets are user-provided and may have separate redistribution terms.
+miku/models/**
+
 # Local release and verification scratch directories
 .release-staging-*/
 .launcher-build/
@@ -87,3 +99,5 @@ desktop.ini
 .verify-*/
 .final-check/
 .integration-check/
+.release-check-*/
+*.spec

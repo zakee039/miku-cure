@@ -1,5 +1,5 @@
-const { ipcRenderer } = require('electron');
-const { t, applyI18n } = require('./i18n');
+const ipcRenderer = window.miku.ipc;
+const { t, setCurrentLang, applyI18n } = window.MikuI18n;
 
 const reportPeriod      = document.getElementById('report-period');
 const chartBars         = document.getElementById('chart-bars');
@@ -28,15 +28,17 @@ applyI18n();
 
 // Load report data sent from main process
 ipcRenderer.on('load-report', (event, data) => {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return;
   currentReportData = data;
-  const dur = data.duration_minutes;
+  const dur = Number.isFinite(data.duration_minutes) ? Math.max(0, data.duration_minutes) : 0;
   reportPeriod.textContent = `${data.startTime || '--:--'} ~ ${data.endTime || '--:--'}  (${dur} min)`;
 
   chartBars.innerHTML = '';
 
   const stats = data.stats || {};
   for (const [emotion, percent] of Object.entries(stats)) {
-    if (percent < 0.5) continue; // skip near-zero entries
+    if (!Object.prototype.hasOwnProperty.call(emotionEmoji, emotion) || !Number.isFinite(percent) || percent < 0.5) continue;
+    const safePercent = Math.max(0, Math.min(100, percent));
 
     const row = document.createElement('div');
     row.className = 'chart-bar-row';
@@ -55,7 +57,7 @@ ipcRenderer.on('load-report', (event, data) => {
 
     const val = document.createElement('span');
     val.className = 'chart-bar-val';
-    val.textContent = `${Math.round(percent)}%`;
+    val.textContent = `${Math.round(safePercent)}%`;
 
     outer.appendChild(inner);
     row.appendChild(label);
@@ -63,15 +65,16 @@ ipcRenderer.on('load-report', (event, data) => {
     row.appendChild(val);
     chartBars.appendChild(row);
 
-    setTimeout(() => { inner.style.width = `${percent}%`; }, 100);
+    setTimeout(() => { inner.style.width = `${safePercent}%`; }, 100);
   }
 
   // Update Miku comment (override the loading placeholder)
-  reportCommentText.textContent = data.comment || t('report.loading');
+  reportCommentText.textContent = typeof data.comment === 'string' ? data.comment : t('report.loading');
 });
 
 // Re-apply translations when language changes
-ipcRenderer.on('lang-changed', () => {
+ipcRenderer.on('lang-changed', (event, lang) => {
+  setCurrentLang(lang);
   applyI18n();
 });
 

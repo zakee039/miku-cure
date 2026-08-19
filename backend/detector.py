@@ -2,6 +2,11 @@ import os
 import cv2
 import numpy as np
 import collections
+import copy
+
+# Keep the desktop companion offline. Some MediaPipe builds honor this flag;
+# native task objects are also closed explicitly during backend shutdown.
+os.environ.setdefault('MEDIAPIPE_DISABLE_TELEMETRY', '1')
 
 try:
     import torch
@@ -100,8 +105,11 @@ def _ensure_blaze_face_model():
         return None
 
 
-def _create_mp_tasks_face_detector():
-    """MediaPipe 0.10.14+ Tasks API (solutions.* removed in some builds)."""
+def _create_mp_tasks_face_detector(force=False):
+    """Create the production MediaPipe detector unless Haar is explicitly selected."""
+    selected = os.environ.get('MIKU_FACE_DETECTOR', 'mediapipe').strip().lower()
+    if not force and selected not in ('mediapipe', 'mp_tasks'):
+        return None
     if mp is None:
         return None
     try:
@@ -126,6 +134,35 @@ def _create_mp_tasks_face_detector():
     except Exception as e:
         print(f"Detector: MediaPipe Tasks FaceDetector init failed: {e}")
         return None
+
+
+def _load_haar_cascade():
+    """Load Haar from memory so Unicode paths and temp-file races are irrelevant."""
+    xml_name = 'haarcascade_frontalface_default.xml'
+    xml_src = os.path.join(cv2.data.haarcascades, xml_name)
+    if not os.path.isfile(xml_src):
+        print("Detector: Haar Cascade XML source not found.")
+        return None
+
+    storage = None
+    try:
+        with open(xml_src, 'r', encoding='utf-8') as f:
+            xml_data = f.read()
+        storage = cv2.FileStorage(
+            xml_data,
+            cv2.FILE_STORAGE_READ | cv2.FILE_STORAGE_MEMORY,
+        )
+        cascade = cv2.CascadeClassifier()
+        node = storage.getFirstTopLevelNode()
+        if node.empty() or not cascade.read(node) or cascade.empty():
+            return None
+        return cascade
+    except (OSError, cv2.error) as e:
+        print(f"Detector: Haar Cascade load failed: {e}")
+        return None
+    finally:
+        if storage is not None:
+            storage.release()
 
 def _select_device():
     """Lightweight CUDA probe — avoids constructing a full EmotionCNN."""
@@ -152,6 +189,8 @@ class EmotionDetector:
         self.model_type = model_type
         self.device = _select_device()
         self.model = None
+        self.last_error = None
+        self.mock_mode = model_type == 'mock'
         # smooth_window kept for API compat; smoothing is disabled (real-time raw labels)
         self.smooth_window = max(1, smooth_window)
         self.conf_threshold = conf_threshold
@@ -159,9 +198,15 @@ class EmotionDetector:
         self._last_stable = ('neutral', 0.0)
 
         # Face detectors: prefer Tasks API → legacy solutions → Haar
+        selected_face_detector = os.environ.get('MIKU_FACE_DETECTOR', 'mediapipe').strip().lower()
+        mediapipe_enabled = selected_face_detector in ('mediapipe', 'mp_tasks')
         self.mp_tasks_face = _create_mp_tasks_face_detector()
         self.mp_face = None  # legacy solutions FaceDetection
-        if self.mp_tasks_face is None and mp_face_detection_legacy is not None:
+        if (
+            mediapipe_enabled
+            and self.mp_tasks_face is None
+            and mp_face_detection_legacy is not None
+        ):
             try:
                 self.mp_face = mp_face_detection_legacy.FaceDetection(
                     min_detection_confidence=0.5,
@@ -172,28 +217,20 @@ class EmotionDetector:
                 print(f"Detector: MediaPipe legacy init failed: {e}")
                 self.mp_face = None
         if self.mp_tasks_face is None and self.mp_face is None:
-            if mp is None:
+            if not mediapipe_enabled:
+                print("Detector: Using offline OpenCV Haar face detector.")
+            elif mp is None:
                 print("Detector: MediaPipe not installed — using Haar fallback.")
             else:
                 print("Detector: MediaPipe face detector unavailable — using Haar fallback.")
 
         self.face_cascade = None
         try:
-            import shutil
-            import tempfile
-            xml_name = 'haarcascade_frontalface_default.xml'
-            xml_src = os.path.join(cv2.data.haarcascades, xml_name)
-            if os.path.exists(xml_src):
-                temp_dir = tempfile.gettempdir()
-                xml_dst = os.path.join(temp_dir, xml_name)
-                shutil.copy(xml_src, xml_dst)
-                self.face_cascade = cv2.CascadeClassifier(xml_dst)
-                if self.face_cascade.empty():
-                    self.face_cascade = None
-                else:
-                    print(f"Detector: OpenCV Haar Cascade loaded from temp: {xml_dst}")
+            self.face_cascade = _load_haar_cascade()
+            if self.face_cascade is not None:
+                print("Detector: OpenCV Haar Cascade loaded from memory.")
             else:
-                print("Detector: Haar Cascade XML source not found.")
+                print("Detector: OpenCV Haar Cascade could not be loaded.")
         except Exception as e:
             print(f"Detector: Failed to initialize Haar Cascade fallback: {e}")
 
@@ -236,23 +273,32 @@ class EmotionDetector:
         )
         lora_path = os.path.join(user_root, "lora", "lora_weights.pth")
         if inject_lora and os.path.exists(lora_path):
-            self.model = inject_lora(self.model).to(self.device)
             try:
                 state = torch.load(lora_path, map_location=self.device, weights_only=True)
             except TypeError:
-                state = torch.load(lora_path, map_location=self.device)
-            self.model.load_state_dict(state, strict=False)
-            print(f"Detector: Loaded LoRA weights from {lora_path}")
+                raise
+            except Exception as exc:
+                print(f"Detector: Ignoring invalid LoRA weights: {exc}")
+                return
+            try:
+                candidate = inject_lora(copy.deepcopy(self.model)).to(self.device)
+                candidate.load_state_dict(state, strict=False)
+                self.model = candidate
+                print(f"Detector: Loaded LoRA weights from {lora_path}")
+            except Exception as exc:
+                print(f"Detector: LoRA weights are incompatible and were ignored: {exc}")
 
     def _load_model(self, model_type, model_path=None):
         """Shared model load path for init and hot-switch."""
         if not torch:
             self.model = None
+            self.last_error = 'torch_unavailable'
             return
         path = self._resolve_model_path(model_type, model_path)
         if not os.path.exists(path):
-            print(f"Detector: Model weights not found at {path}. Running in fallback mode.")
+            print(f"Detector: Model weights not found at {path}. Emotion inference disabled.")
             self.model = None
+            self.last_error = 'model_weights_missing'
             return
         try:
             self.model = self._build_architecture(path)
@@ -260,22 +306,19 @@ class EmotionDetector:
             self.model.load_state_dict(state)
             self._apply_lora()
             self.model.eval()
+            self.last_error = None
             print(f"Detector: Loaded PyTorch model from {path} on {self.device}")
         except TypeError:
-            # Older torch without weights_only
-            try:
-                self.model = self._build_architecture(path)
-                state = torch.load(path, map_location=self.device)
-                self.model.load_state_dict(state)
-                self._apply_lora()
-                self.model.eval()
-                print(f"Detector: Loaded PyTorch model from {path} on {self.device}")
-            except Exception as e:
-                print(f"Detector: Failed to load PyTorch state dict: {e}")
-                self.model = None
+            print(
+                "Detector: This PyTorch version lacks safe weights_only loading. "
+                "Upgrade PyTorch; unsafe pickle fallback is disabled."
+            )
+            self.model = None
+            self.last_error = 'unsafe_torch_version'
         except Exception as e:
             print(f"Detector: Failed to load PyTorch state dict: {e}")
             self.model = None
+            self.last_error = 'model_load_failed'
 
     def switch_model(self, model_type, force=False):
         """
@@ -292,6 +335,7 @@ class EmotionDetector:
 
         print(f"Detector: Switching model type from '{self.model_type}' to '{model_type}' (force={force})")
         self.model_type = model_type
+        self.mock_mode = model_type == 'mock'
         self._emotion_history.clear()
 
         if torch and model_type not in ['mock']:
@@ -325,9 +369,12 @@ class EmotionDetector:
                     conf_val = confidence.item()
             except Exception as e:
                 print(f"Detector: Model forward pass failed: {e}")
-                detected_emotion, conf_val = self._fallback_inference(face_img)
-        else:
+                self.last_error = 'model_inference_failed'
+                return 'no_face', 0.0, face_coords
+        elif self.mock_mode:
             detected_emotion, conf_val = self._fallback_inference(face_img)
+        else:
+            return 'no_face', 0.0, face_coords
 
         return detected_emotion, conf_val, face_coords
 
@@ -406,18 +453,30 @@ class EmotionDetector:
         return tensor_face.to(self.device)
 
     def _fallback_inference(self, face_img):
-        """Brightness mock when no PyTorch weights are loaded."""
+        """Deterministic brightness mock, only for explicit model_type='mock'."""
         gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
         mean_brightness = np.mean(gray)
         if mean_brightness > 135:
             return 'happy', 0.85
         if mean_brightness < 90:
             return 'sadness', 0.75
-        import random
-        rand_val = random.random()
-        if rand_val > 0.8:
-            return 'surprise', 0.60
-        return 'neutral', 0.85
+        return 'neutral', 0.65
+
+    @property
+    def is_ready(self):
+        return bool(self.mock_mode or (self.model is not None and self.last_error is None))
+
+    def close(self):
+        """Release native MediaPipe resources before interpreter teardown."""
+        for attr in ('mp_tasks_face', 'mp_face'):
+            resource = getattr(self, attr, None)
+            close = getattr(resource, 'close', None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as exc:
+                    print(f"Detector: Failed to close {attr}: {exc}")
+            setattr(self, attr, None)
 
 
 if __name__ == '__main__':

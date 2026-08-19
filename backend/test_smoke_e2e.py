@@ -22,8 +22,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 def test_mediapipe_tasks():
     from detector import EmotionDetector, _create_mp_tasks_face_detector
+    # Exercise the deterministic offline fallback here; real MediaPipe startup
+    # and fast process termination are covered by the launcher integration test.
+    old_face_detector = os.environ.get('MIKU_FACE_DETECTOR')
+    os.environ['MIKU_FACE_DETECTOR'] = 'haar'
     det = _create_mp_tasks_face_detector()
-    assert det is not None, "MediaPipe Tasks FaceDetector failed to init (model download?)"
+    assert det is None, "Explicit Haar mode must not initialize MediaPipe"
     # Synthetic image — may return no face, but must not crash
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     frame[:] = (40, 40, 40)
@@ -31,14 +35,21 @@ def test_mediapipe_tasks():
     import cv2
     cv2.ellipse(frame, (320, 240), (80, 100), 0, 0, 360, (200, 180, 170), -1)
     ed = EmotionDetector(model_type='mock', smooth_window=3)
-    # Force inject tasks detector from factory if present
-    if det is not None:
-        ed.mp_tasks_face = det
-    face, coords = ed.extract_face(frame)
-    print(f"  face extract: face={'yes' if face is not None else 'no'} coords={coords}")
-    em, conf, bb = ed.detect_emotion(frame)
-    print(f"  detect: {em} conf={conf:.2f}")
-    print("  OK mediapipe/tasks + detector pipeline")
+    try:
+        assert ed.face_cascade is not None and not ed.face_cascade.empty(), (
+            "offline Haar detector did not initialize"
+        )
+        face, coords = ed.extract_face(frame)
+        print(f"  face extract: face={'yes' if face is not None else 'no'} coords={coords}")
+        em, conf, bb = ed.detect_emotion(frame)
+        print(f"  detect: {em} conf={conf:.2f}")
+        print("  OK Haar fallback pipeline; production default is MediaPipe")
+    finally:
+        ed.close()
+        if old_face_detector is None:
+            os.environ.pop('MIKU_FACE_DETECTOR', None)
+        else:
+            os.environ['MIKU_FACE_DETECTOR'] = old_face_detector
 
 
 def test_logger_pause_and_short():
@@ -82,7 +93,16 @@ def test_ws_protocol():
     from websocket_server import MikuWebSocketServer
 
     got = []
-    srv = MikuWebSocketServer(host='127.0.0.1', port=18767)
+    tmp = tempfile.mkdtemp()
+    old_user_dir = os.environ.get('MIKU_USER_DIR')
+    os.environ['MIKU_USER_DIR'] = tmp
+    token = 'smoke-test-token'
+    srv = MikuWebSocketServer(
+        host='127.0.0.1',
+        port=18767,
+        auth_token=token,
+        launch_session='smoke-session',
+    )
 
     def on_msg(d):
         got.append(d)
@@ -94,15 +114,25 @@ def test_ws_protocol():
 
     async def client():
         async with websockets.connect('ws://127.0.0.1:18767') as ws:
+            await ws.send(json.dumps({'type': 'authenticate', 'token': token}))
+            authenticated = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
             ready = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
             await ws.send(json.dumps({'type': 'ping'}))
             pong = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
-            return ready, pong
+            return authenticated, ready, pong
 
-    ready, pong = asyncio.run(client())
-    assert ready['type'] == 'backend_ready'
-    assert pong['type'] == 'pong'
-    srv.stop()
+    try:
+        authenticated, ready, pong = asyncio.run(client())
+        assert authenticated['ok'] is True
+        assert ready['type'] == 'backend_ready'
+        assert pong['type'] == 'pong'
+    finally:
+        srv.stop()
+        if old_user_dir is None:
+            os.environ.pop('MIKU_USER_DIR', None)
+        else:
+            os.environ['MIKU_USER_DIR'] = old_user_dir
+        shutil.rmtree(tmp, ignore_errors=True)
     time.sleep(0.15)
     print("  OK websocket ready/ping/pong")
 

@@ -28,7 +28,7 @@ echo.
 
 call "%VENV%\Scripts\activate.bat"
 cd /d "%TRAIN%"
-uvicorn webui:app --host 0.0.0.0 --port 8000
+uvicorn webui:app --host 127.0.0.1 --port 8000
 
 echo.
 pause

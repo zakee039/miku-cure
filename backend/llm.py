@@ -2,6 +2,42 @@ import os
 import time
 import random
 import datetime
+import ipaddress
+import json
+import threading
+from urllib.parse import urlparse
+
+
+def validate_llm_base_url(base_url: str) -> str:
+    """Accept HTTPS endpoints and explicit loopback HTTP development endpoints."""
+    if base_url is None:
+        return ''
+    if not isinstance(base_url, str) or len(base_url) > 2048:
+        raise ValueError('invalid_base_url')
+    value = base_url.strip().rstrip('/')
+    if not value:
+        return ''
+    try:
+        parsed = urlparse(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError('invalid_base_url') from exc
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        raise ValueError('invalid_base_url')
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError('invalid_base_url')
+    if port is not None and not (1 <= port <= 65535):
+        raise ValueError('invalid_base_url')
+    if parsed.scheme == 'http':
+        hostname = parsed.hostname.lower()
+        is_loopback = hostname == 'localhost'
+        try:
+            is_loopback = is_loopback or ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            pass
+        if not is_loopback:
+            raise ValueError('insecure_base_url')
+    return value
 
 # ── Multilingual fallback messages ──────────────────────────────────────────
 FALLBACK_MESSAGES = {
@@ -162,6 +198,10 @@ Ask if the user would like you to sing or dance.
 
 
 class MikuLLM:
+    MAX_HISTORY_MESSAGES = 100
+    MAX_HISTORY_CONTENT = 8000
+    MAX_MEMORY_PROMPT = 6000
+
     def __init__(self):
         self.api_key  = ""
         self.base_url = ""
@@ -169,6 +209,8 @@ class MikuLLM:
         self.client   = None
         self.chat_history = []
         self.last_chat_time = time.time()
+        self._api_lock = threading.RLock()
+        self._closed = False
         user_root = os.environ.get('MIKU_USER_DIR') or os.path.join(
             os.path.dirname(__file__), "..", "user"
         )
@@ -187,17 +229,30 @@ class MikuLLM:
 
     def _init_client(self):
         """Try to initialize the OpenAI-compatible client."""
-        self.client = None
-        if self.api_key:
-            try:
-                import openai
-                self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
-                print(f"LLM: Client initialized — {self.base_url} / {self.model}")
-                self._process_unsummarized_archives_async()
-            except ImportError:
-                print("LLM: openai package not installed. Using local fallback bank.")
-        else:
-            print("LLM: No API key configured. Using local fallback bank.")
+        with self._api_lock:
+            old_client = self.client
+            self.client = None
+            close = getattr(old_client, 'close', None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+            if self._closed:
+                return
+            if self.api_key:
+                try:
+                    import openai
+                    kwargs = {'api_key': self.api_key}
+                    if self.base_url:
+                        kwargs['base_url'] = self.base_url
+                    self.client = openai.OpenAI(**kwargs)
+                    print(f"LLM: Client initialized — {self.base_url} / {self.model}")
+                    self._process_unsummarized_archives_async()
+                except ImportError:
+                    print("LLM: openai package not installed. Using local fallback bank.")
+            else:
+                print("LLM: No API key configured. Using local fallback bank.")
 
     def reconfigure(self, base_url: str, api_key: str, model: str):
         """Hot-swap the LLM backend without restarting the server.
@@ -205,39 +260,85 @@ class MikuLLM:
         Empty strings intentionally clear the corresponding field so a failed
         key decrypt / user reset does not keep a stale secret.
         """
-        if base_url is not None:
-            self.base_url = base_url
-        if api_key is not None:
-            self.api_key = api_key
-        if model is not None:
-            self.model = model
-        self._init_client()
+        normalized_url = validate_llm_base_url(base_url) if base_url is not None else self.base_url
+        if api_key is not None and (not isinstance(api_key, str) or len(api_key) > 8192):
+            raise ValueError('invalid_api_key')
+        if model is not None and (not isinstance(model, str) or len(model.strip()) > 200):
+            raise ValueError('invalid_model')
+        with self._api_lock:
+            if base_url is not None:
+                self.base_url = normalized_url
+            if api_key is not None:
+                self.api_key = api_key.strip()
+            if model is not None:
+                self.model = model.strip()
+            self._init_client()
 
     # ── Memory management ─────────────────────────────────────────────────────
 
     def _load_active_chat(self):
-        import json
         if os.path.exists(self.active_chat_file):
             try:
+                if os.path.getsize(self.active_chat_file) > 5_000_000:
+                    raise ValueError('active chat file exceeds size limit')
                 with open(self.active_chat_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     if isinstance(data, dict):
                         self.chat_history = data.get('history', [])
-                        self.last_chat_time = data.get('last_chat_time', time.time())
+                        try:
+                            self.last_chat_time = float(data.get('last_chat_time', time.time()))
+                        except (TypeError, ValueError):
+                            self.last_chat_time = time.time()
                     elif isinstance(data, list):
                         self.chat_history = data
                         self.last_chat_time = time.time()
+                    else:
+                        self.chat_history = []
+                self._trim_history_locked()
                 print(f"LLM: Loaded active chat with {len(self.chat_history)} messages.")
             except Exception as e:
                 print(f"LLM: Error loading active chat: {e}")
 
     def _save_active_chat(self):
-        import json
-        try:
-            with open(self.active_chat_file, 'w', encoding='utf-8') as f:
-                json.dump({'history': self.chat_history, 'last_chat_time': self.last_chat_time}, f, ensure_ascii=False)
-        except Exception as e:
-            print(f"Error saving active chat: {e}")
+        with self._api_lock:
+            self._trim_history_locked()
+            tmp_path = self.active_chat_file + '.tmp'
+            try:
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    json.dump(
+                        {'history': self.chat_history, 'last_chat_time': self.last_chat_time},
+                        f,
+                        ensure_ascii=False,
+                    )
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, self.active_chat_file)
+            except Exception as e:
+                print(f"Error saving active chat: {e}")
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    def _trim_history_locked(self):
+        cleaned = []
+        for message in self.chat_history[-self.MAX_HISTORY_MESSAGES:]:
+            if not isinstance(message, dict) or message.get('role') not in ('user', 'assistant'):
+                continue
+            content = message.get('content')
+            if not isinstance(content, str):
+                continue
+            cleaned.append({
+                'role': message['role'],
+                'content': content[:self.MAX_HISTORY_CONTENT],
+            })
+        self.chat_history = cleaned
+
+    def get_chat_history(self):
+        with self._api_lock:
+            self.check_new_day()
+            return [dict(message) for message in self.chat_history]
 
     def _get_latest_memory(self):
         if not os.path.exists(self.memory_dir):
@@ -248,13 +349,19 @@ class MikuLLM:
         files.sort(key=lambda x: os.path.getmtime(os.path.join(self.memory_dir, x)), reverse=True)
         latest_file = os.path.join(self.memory_dir, files[0])
         try:
-            with open(latest_file, 'r', encoding='utf-8') as f:
-                return f.read()
+            with open(latest_file, 'rb') as f:
+                size = os.path.getsize(latest_file)
+                f.seek(max(0, size - self.MAX_MEMORY_PROMPT * 4))
+                return f.read().decode('utf-8', errors='ignore')[-self.MAX_MEMORY_PROMPT:]
         except Exception as e:
             print(f"Error reading memory: {e}")
             return ""
 
     def check_new_day(self):
+        with self._api_lock:
+            return self._check_new_day_locked()
+
+    def _check_new_day_locked(self):
         if not self.chat_history:
             return False
             
@@ -264,7 +371,6 @@ class MikuLLM:
         delay_hours = (now - self.last_chat_time) / 3600.0
         
         if last_dt.date() != now_dt.date() and delay_hours >= 8.0:
-            import json
             archive_name = f"archive_{int(now)}.json"
             archive_path = os.path.join(self.memory_dir, archive_name)
             try:
@@ -290,7 +396,6 @@ class MikuLLM:
             return
             
         def task():
-            import json
             for arch in archives:
                 arch_path = os.path.join(self.memory_dir, arch)
                 try:
@@ -304,16 +409,22 @@ class MikuLLM:
 
                     print(f"LLM: Summarizing archive {arch} into long-term memory...")
                     prompt = "请以客观简练的语言，总结Miku与用户的以下对话核心内容，提炼出关键信息和情感状态，作为未来的记忆：\n\n"
-                    for msg in history:
+                    for msg in history[-self.MAX_HISTORY_MESSAGES:]:
                         role = "用户" if msg.get('role') == 'user' else "Miku"
-                        prompt += f"{role}: {msg.get('content')}\n"
+                        content = str(msg.get('content', ''))[:self.MAX_HISTORY_CONTENT]
+                        prompt += f"{role}: {content}\n"
+                        if len(prompt) >= 50_000:
+                            break
 
-                    resp = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=1500,
-                        timeout=30.0
-                    )
+                    with self._api_lock:
+                        if self._closed or not self.client:
+                            return
+                        resp = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=[{"role": "user", "content": prompt}],
+                            max_tokens=1200,
+                            timeout=10.0
+                        )
                     summary = resp.choices[0].message.content.strip()
 
                     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -347,12 +458,15 @@ class MikuLLM:
 
         prompt = _build_unhappy_prompt(lang, emotion, duration_seconds)
         try:
-            resp = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=120,
-                timeout=5.0
-            )
+            with self._api_lock:
+                if self._closed or not self.client:
+                    return fallback_msg
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=120,
+                    timeout=5.0
+                )
             text = resp.choices[0].message.content.strip()
             text = text.replace('"', '').replace('\u201c', '').replace('\u201d', '')
             return text
@@ -377,12 +491,15 @@ class MikuLLM:
 
         prompt = _build_focus_end_prompt(lang, duration_minutes, emotion_summary, is_struggle)
         try:
-            resp = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,
-                timeout=15.0
-            )
+            with self._api_lock:
+                if self._closed or not self.client:
+                    return fallback_msg
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=300,
+                    timeout=10.0
+                )
             text = resp.choices[0].message.content.strip()
             text = text.replace('"', '').replace('\u201c', '').replace('\u201d', '')
             if not text:
@@ -393,6 +510,16 @@ class MikuLLM:
             return fallback_msg
 
     def chat_with_miku(self, user_text: str, hidden_context: str = None, lang: str = 'zh') -> str:
+        with self._api_lock:
+            return self._chat_with_miku_locked(user_text, hidden_context, lang)
+
+    def _chat_with_miku_locked(self, user_text: str, hidden_context: str = None, lang: str = 'zh') -> str:
+        if not isinstance(user_text, str) or not user_text.strip() or len(user_text) > 4000:
+            raise ValueError('invalid_chat_text')
+        if hidden_context is not None and (
+            not isinstance(hidden_context, str) or len(hidden_context) > 8000
+        ):
+            raise ValueError('invalid_hidden_context')
         self.check_new_day()
         now = time.time()
 
@@ -402,14 +529,14 @@ class MikuLLM:
             return "Miku 还没准备好大脑哦，请先在设置中配置 API~" if lang == 'zh' else "API not configured~"
 
         # Load latest memory
-        memory = self._get_latest_memory()
+        memory = self._get_latest_memory()[-self.MAX_MEMORY_PROMPT:]
         memory_prompt = f"\n这是你上一轮的记忆摘要：\n{memory}\n请结合这些记忆与用户进行今天的对话。" if memory else ""
         
         master_name = None
         if os.path.exists(self.master_name_file):
             try:
                 with open(self.master_name_file, 'r', encoding='utf-8') as f:
-                    name = f.read().strip()
+                    name = f.read(256).strip()
                     if name: master_name = name
             except Exception:
                 pass
@@ -428,7 +555,10 @@ class MikuLLM:
         messages = [{"role": "system", "content": sys_msg}]
         
         # Add recent history (last 10 messages)
-        recent_history = self.chat_history[-10:]
+        recent_history = [
+            {'role': item['role'], 'content': item['content'][:4000]}
+            for item in self.chat_history[-12:]
+        ]
         messages.extend(recent_history)
         
         # Save user message to history immediately so UI can fetch it during generation
@@ -445,7 +575,7 @@ class MikuLLM:
                 model=self.model,
                 messages=messages,
                 max_tokens=500,
-                timeout=20.0
+                timeout=10.0
             )
             reply = resp.choices[0].message.content.strip()
             
@@ -456,7 +586,30 @@ class MikuLLM:
             return reply
         except Exception as e:
             print(f"LLM API call failed: {e}")
-            return "网络有点不通畅哦，Miku 没听清~" if lang == 'zh' else "Network error~"
+            error_reply = "网络有点不通畅哦，Miku 没听清~" if lang == 'zh' else "Network error~"
+            if self._closed:
+                return error_reply
+            self.chat_history.append({"role": "assistant", "content": error_reply})
+            self._save_active_chat()
+            return error_reply
+
+    def close(self, timeout=0.5):
+        # Shutdown must be able to interrupt an in-flight HTTP request; waiting
+        # for the serialization lock would recreate the slow-exit bug.
+        self._closed = True
+        client = self.client
+        self.client = None
+        close = getattr(client, 'close', None)
+        if callable(close):
+            def _close_client():
+                try:
+                    close()
+                except Exception:
+                    pass
+
+            thread = threading.Thread(target=_close_client, name='miku-llm-close', daemon=True)
+            thread.start()
+            thread.join(timeout=max(0.0, float(timeout)))
 
 
 if __name__ == '__main__':

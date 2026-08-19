@@ -10,15 +10,14 @@
 ## 运行（开发）
 
 ```bat
-cd launcher
-run.bat
+install.bat
+start.bat
 ```
 
-或：
+已安装依赖后，也可直接运行：
 
 ```bat
-pip install -r requirements.txt
-python main.py
+launcher\run.bat
 ```
 
 ## 打包启动器 exe
@@ -69,12 +68,15 @@ MikuCure/
 | 识别 | 有 `backend/.venv` | `PORTABLE_MANIFEST.json` / `runtime/python` |
 | Python | `.venv` | `runtime/python` |
 | 启动 Electron | `node_modules/electron/dist` | 同左（已打入包内） |
-| 后端托管 | 启动器或 Electron 均可 | 建议只用启动器（`MIKU_EXTERNAL_BACKEND=1`） |
+| 后端托管 | 仅启动器 | 仅启动器（`MIKU_EXTERNAL_BACKEND=1`） |
 
 ## 与 RAG-PRO 对齐的要点
 
 - 嵌入式 Python + 拷贝 site-packages（禁止把 venv 原样拷贝）
 - 清理 `_distutils_hack` / 坏 `.pth`
 - 启动器识别便携模式，禁止对用户机 `npm install`
+- 每次启动生成独立会话 ID 与 WebSocket 认证令牌
+- 服务运行期间原子更新签名的 `user/launcher_heartbeat.json`；前端可在启动器异常退出、心跳过期后自行关闭
+- 仅对本次启动器跟踪的子进程执行超时终止，不信任遗留 PID 文件
 - 关闭对话框：停止服务 / 仅退启动器
 - 打包脚本校验 import 后再打 zip

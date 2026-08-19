@@ -72,7 +72,8 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 }
 
 .miku-display-area video,
-.miku-display-area img {
+.miku-display-area img,
+.miku-3d-layer {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -80,6 +81,144 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 }
 
 .miku-display-area img {
+  display: none;
+}
+
+.miku-3d-layer {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.miku-3d-layer.active {
+  display: flex;
+}
+
+.miku-3d-layer canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+
+.miku-3d-status {
+  position: relative;
+  z-index: 1;
+  max-width: calc(100% - 24px);
+  padding: 7px 9px;
+  border: 1px solid rgba(57, 197, 187, 0.35);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: rgba(15, 25, 30, 0.86);
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.miku-3d-layer.has-model .miku-3d-status {
+  display: none;
+}
+
+.character-adjust-toggle {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: all 0.2s ease;
+  -webkit-app-region: no-drag;
+}
+
+.miku-3d-layer.has-model .character-adjust-toggle {
+  display: flex;
+}
+
+.miku-3d-layer.is-adjusting .character-adjust-toggle {
+  display: none;
+}
+
+.character-adjust-toggle:hover,
+.character-adjust-toggle[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: transparent;
+  box-shadow: none;
+  transform: scale(1.2);
+}
+
+.miku-3d-layer.is-adjusting canvas {
+  cursor: move;
+}
+
+.character-adjust-help {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 101;
+  display: none;
+  width: max-content;
+  max-width: calc(100% - 52px);
+  transform: translateX(-50%);
+  color: #3e4a59;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+}
+
+.character-adjust-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 102;
+  width: 20px;
+  height: 20px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #ff8882;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  transition: all 0.2s ease;
+  -webkit-app-region: no-drag;
+}
+
+.miku-3d-layer.is-adjusting .character-adjust-help,
+.miku-3d-layer.is-adjusting .character-adjust-dismiss {
+  display: flex;
+}
+
+.character-adjust-dismiss:hover {
+  color: #ff5f56;
+  transform: scale(1.2);
+}
+
+.miku-display-area.is-adjusting-model .viewport-header {
   display: none;
 }
 

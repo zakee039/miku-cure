@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; media-src 'self' file: data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Miku Chat</title>
   <style>
     * {
@@ -187,10 +188,11 @@
   </div>
 
   <div class="input-area">
-    <input type="text" class="chat-input" id="chat-input" data-i18n-placeholder="chat.placeholder" placeholder="说点什么...">
+    <input type="text" class="chat-input" id="chat-input" maxlength="4000" data-i18n-placeholder="chat.placeholder" placeholder="说点什么...">
     <button class="send-btn" id="send-btn" data-i18n="chat.send">发送</button>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="chat_renderer.js"></script>
 </body>
 </html>

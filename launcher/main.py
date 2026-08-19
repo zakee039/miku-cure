@@ -18,7 +18,10 @@ import traceback
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from core.paths import APP_NAME, deploy_mode_detail, deploy_mode_label
+from core.envcheck import EnvCheckCancelled, run_env_check
+from core.i18n import environment_summary, get_texts, translate_progress
+from core.jsonio import read_json
+from core.paths import IS_PORTABLE, PROJECT_ROOT, USER_DIR
 from core.single_instance import SingleInstance
 from ui.splash import SplashWindow
 from ui.theme import QSS, app_icon
@@ -29,33 +32,48 @@ class BootstrapWorker(QThread):
     failed = Signal(str)
     finished_ok = Signal(object)
 
+    def __init__(self, language: str) -> None:
+        super().__init__()
+        self._language = language
+
     def run(self) -> None:
         try:
-            from core.envcheck import run_env_check
-
-            self.progress.emit("识别部署模式…", 12)
-            self.progress.emit(f"模式：{deploy_mode_label()}", 22)
+            texts = get_texts(self._language)
+            mode = texts["mode_portable"] if IS_PORTABLE else texts["mode_dev"]
+            self.progress.emit(texts["splash_identify"], 12)
+            self.progress.emit(texts["splash_mode"].format(mode=mode), 22)
 
             def _cb(message: str, percent: int) -> None:
                 # Map envcheck 0–100 into splash 25–92
                 mapped = 25 + int(percent * 0.67)
-                self.progress.emit(message, mapped)
+                self.progress.emit(
+                    translate_progress(self._language, message),
+                    mapped,
+                )
 
-            self.progress.emit("环境检查中…", 28)
-            report = run_env_check(progress=_cb)
-            self.progress.emit(report.summary_line(), 95)
+            self.progress.emit(texts["splash_checking"], 28)
+            report = run_env_check(
+                progress=_cb,
+                cancelled=self.isInterruptionRequested,
+            )
+            self.progress.emit(environment_summary(self._language, report), 95)
             self.finished_ok.emit(report)
+        except EnvCheckCancelled:
+            return
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(f"{exc}\n{traceback.format_exc()}")
 
 
 def main() -> int:
+    config = read_json(USER_DIR / "config.json", {})
+    language = config.get("miku-language", "zh") if isinstance(config, dict) else "zh"
+    texts = get_texts(language)
     # Windows 任务栏图标分组 / 显示自定义图标
     if sys.platform == "win32":
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]
-                "MikuCure.Launcher.1.1.2"
+                "MikuCure.Launcher.1.2.0"
             )
         except Exception:
             pass
@@ -64,7 +82,7 @@ def main() -> int:
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     app = QApplication(sys.argv)
-    app.setApplicationName(APP_NAME)
+    app.setApplicationName(texts["app_title"])
     # Tray guardian: hiding the main window must NOT quit the process
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(QSS)
@@ -77,20 +95,24 @@ def main() -> int:
     if not instance.acquire():
         QMessageBox.warning(
             None,
-            APP_NAME,
-            "启动器已在运行中。\n请关闭已有实例后再试。",
+            texts["app_title"],
+            texts["single_instance"],
         )
         return 0
 
     splash = SplashWindow()
     if not icon.isNull():
         splash.setWindowIcon(icon)
-    splash.set_mode(deploy_mode_label(), deploy_mode_detail())
-    splash.set_step("正在启动，请稍候…", 5)
+    mode = texts["mode_portable"] if IS_PORTABLE else texts["mode_dev"]
+    mode_detail = texts[
+        "mode_detail_portable" if IS_PORTABLE else "mode_detail_dev"
+    ].format(root=PROJECT_ROOT)
+    splash.set_mode(mode, mode_detail)
+    splash.set_step(texts["splash_starting"], 5)
     splash.show()
     app.processEvents()
 
-    worker = BootstrapWorker()
+    worker = BootstrapWorker(language)
     state: dict = {}
 
     def on_progress(message: str, percent: int) -> None:
@@ -98,50 +120,63 @@ def main() -> int:
 
     def on_failed(err: str) -> None:
         state["error"] = err
-        splash.set_step("检测异常，继续加载主界面…", 88)
+        splash.set_step(texts["splash_check_failed"], 88)
         _open_main()
 
     def on_ok(report) -> None:
         state["report"] = report
-        splash.set_step("环境就绪，加载主界面…", 95)
+        splash.set_step(texts["splash_ready"], 95)
         _open_main()
 
     def _open_main() -> None:
         from ui.main_window import MainWindow
 
         app.processEvents()
+        report = state.get("report")
         try:
-            window = MainWindow()
+            # The splash already paid for the environment check. Supplying its
+            # report avoids immediately running the same expensive imports a
+            # second time while preserving MainWindow's auto-start timer.
+            window = MainWindow(initial_env_report=report)
         except Exception as exc:  # noqa: BLE001
             splash.close()
             QMessageBox.critical(
                 None,
-                APP_NAME,
-                f"主界面加载失败：\n{exc}\n\n{traceback.format_exc()[-800:]}",
+                texts["app_title"],
+                texts["main_load_error"].format(
+                    error=exc,
+                    trace=traceback.format_exc()[-800:],
+                ),
             )
             app.quit()
             return
 
-        report = state.get("report")
-        if report is not None:
-            window.statusBar().showMessage(report.summary_line())
-            window.refresh_env()
-        elif state.get("error"):
-            window.statusBar().showMessage("启动检测异常，请打开「环境检查」")
+        if report is None and state.get("error"):
+            window.statusBar().showMessage(texts["check_error"])
 
         splash.close()
         window.show()
         app._miku_window = window  # type: ignore[attr-defined]
         app._miku_instance = instance  # type: ignore[attr-defined]
+        app.aboutToQuit.connect(window.shutdown_workers)
 
     worker.progress.connect(on_progress)
     worker.failed.connect(on_failed)
     worker.finished_ok.connect(on_ok)
     worker.start()
 
-    code = app.exec()
-    instance.release()
-    return code
+    def stop_bootstrap_worker() -> None:
+        if worker.isRunning():
+            worker.requestInterruption()
+
+    app.aboutToQuit.connect(stop_bootstrap_worker)
+    try:
+        return app.exec()
+    finally:
+        if worker.isRunning():
+            worker.requestInterruption()
+            worker.wait(2500)
+        instance.release()
 
 
 if __name__ == "__main__":

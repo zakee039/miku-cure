@@ -1,41 +1,12 @@
-const fs = require('fs');
-const path = require('path');
-const { ipcRenderer } = require('electron');
-const { t, applyI18n } = require('./i18n');
-
-// Resolve media roots (dev / portable / electron-builder)
-function resolveMediaDirs() {
-  const candidates = [
-    process.env.MIKU_PROJECT_ROOT ? path.join(process.env.MIKU_PROJECT_ROOT, 'miku') : null,
-    process.env.MIKU_RESOURCES ? path.join(process.env.MIKU_RESOURCES, 'miku') : null,
-    path.join(__dirname, '..', 'miku'),
-    process.resourcesPath ? path.join(process.resourcesPath, 'miku') : null,
-  ].filter(Boolean);
-  for (const root of candidates) {
-    if (fs.existsSync(root)) {
-      return {
-        projectRoot: path.dirname(root),
-        gifDir: path.join(root, 'gif'),
-        danceDir: path.join(root, 'dance'),
-        singDir: path.join(root, 'sing'),
-      };
-    }
-  }
-  const fallback = path.join(__dirname, '..', 'miku');
-  return {
-    projectRoot: path.join(__dirname, '..'),
-    gifDir: path.join(fallback, 'gif'),
-    danceDir: path.join(fallback, 'dance'),
-    singDir: path.join(fallback, 'sing'),
-  };
-}
-const { projectRoot, gifDir, danceDir, singDir } = resolveMediaDirs();
-const assetsDir = path.join(__dirname, 'assets');
+const ipcRenderer = window.miku.ipc;
+const chatProtocol = window.miku.chat;
+const { t, applyI18n, getCurrentLang, setCurrentLang } = window.MikuI18n;
 
 // Cache resource file lists
 let gifFiles = [];
 let danceFiles = [];
 let singFiles = [];
+let assetFiles = [];
 
 // Special state videos for the sing player
 const SING_VIDEO  = 'MIKU-SING.mp4';
@@ -45,31 +16,37 @@ const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mkv', '.mov', '.avi', '.m4v
 const IMAGE_EXTENSIONS = new Set(['.gif', '.png', '.jpg', '.jpeg', '.webp', '.bmp']);
 const AUDIO_EXTENSIONS = new Set(['.ogg', '.mp3', '.wav', '.m4a', '.aac', '.flac']);
 
-function hasExtension(filename, extensions) {
-  return extensions.has(path.extname(filename).toLowerCase());
+function extensionOf(filename) {
+  const match = /\.[^.]+$/.exec(String(filename || ''));
+  return match ? match[0].toLowerCase() : '';
 }
 
-try {
-  if (fs.existsSync(gifDir)) {
-    // Exclude special sing-player videos from daily rotation
-    gifFiles = fs.readdirSync(gifDir).filter(f =>
-      (hasExtension(f, VIDEO_EXTENSIONS) || hasExtension(f, IMAGE_EXTENSIONS)) && !SPECIAL_VIDEOS.has(f)
-    );
-  }
-  if (fs.existsSync(danceDir)) {
-    danceFiles = fs.readdirSync(danceDir).filter(f => hasExtension(f, VIDEO_EXTENSIONS));
-  }
-  if (fs.existsSync(singDir)) {
-    singFiles = fs.readdirSync(singDir).filter(f => hasExtension(f, AUDIO_EXTENSIONS));
-  }
-} catch (err) {
-  console.error("Error reading Miku directories:", err);
+function hasExtension(filename, extensions) {
+  return extensions.has(extensionOf(filename));
+}
+
+async function refreshMedia(kind = null) {
+  const kinds = kind ? [kind] : ['daily', 'dance', 'sing', 'asset'];
+  const values = await Promise.all(kinds.map(async (item) => {
+    try {
+      const result = await ipcRenderer.invoke('list-media', item);
+      return Array.isArray(result) ? result : [];
+    } catch {
+      return [];
+    }
+  }));
+  kinds.forEach((item, index) => {
+    if (item === 'daily') gifFiles = values[index].filter((file) => !SPECIAL_VIDEOS.has(file.name));
+    if (item === 'dance') danceFiles = values[index];
+    if (item === 'sing') singFiles = values[index];
+    if (item === 'asset') assetFiles = values[index];
+  });
 }
 
 // Helper: switch Miku video to a specific file in assets dir (looped, muted)
 function playSingStateVideo(filename) {
-  const p = path.join(assetsDir, filename);
-  if (!fs.existsSync(p)) {
+  const media = assetFiles.find((file) => file.name === filename);
+  if (!media) {
     // Fallback to normal daily GIF if special video not found
     playRandomDailyVideo();
     return;
@@ -78,10 +55,10 @@ function playSingStateVideo(filename) {
   mikuImage.style.display = 'none';
   mikuImage.removeAttribute('src');
   mikuVideo.style.display = 'block';
-  const targetSrc = 'file:///' + p.replace(/\\/g, '/');
+  const targetSrc = media.url;
   
   // Prevent restarting the video if it's already playing the target file
-  if (mikuVideo.src === targetSrc || decodeURI(mikuVideo.src) === targetSrc) {
+  if (mikuVideo.src === targetSrc) {
     return;
   }
   
@@ -94,6 +71,7 @@ function playSingStateVideo(filename) {
 // DOM Elements
 const mikuVideo = document.getElementById('miku-video');
 const mikuImage = document.getElementById('miku-image');
+const miku3dLayer = document.getElementById('miku-3d-layer');
 const closeBtn = document.getElementById('close-btn');
 const chatBubble = document.getElementById('chat-bubble');
 const chatText = document.getElementById('chat-text');
@@ -142,6 +120,7 @@ let rotationTimer = null;
 let pomodoroTimer = null;
 let focusTimeTotal = 30 * 60; // in seconds
 let focusTimeRemaining = 30 * 60;
+let focusDeadlineMs = 0;
 let isPaused = false;
 let ws = null;
 let focusStartTimeStr = "";
@@ -149,10 +128,34 @@ let currentSingIndex = 0;
 let currentDanceIndex = 0;
 let isPlayingSing = false;
 let currentModelType = ipcRenderer.sendSync('get-config', 'miku-model-type') || 'best_rnn_attention.pth';
+let currentDisplayMode = ipcRenderer.sendSync('get-config', 'miku-display-mode') || 'media';
+let currentCharacterModel = ipcRenderer.sendSync('get-config', 'miku-character-model') || '';
 
-function showMediaFile(filePath, { muted = true, loop = true } = {}) {
-  const source = 'file:///' + filePath.replace(/\\/g, '/');
-  if (hasExtension(filePath, IMAGE_EXTENSIONS)) {
+function is3dMode() {
+  return currentDisplayMode === '3d';
+}
+
+function applyDisplayMode(mode) {
+  currentDisplayMode = mode === '3d' ? '3d' : 'media';
+  if (is3dMode()) {
+    clearTimeout(rotationTimer);
+    mikuVideo.pause();
+    mikuVideo.style.display = 'none';
+    mikuImage.style.display = 'none';
+    miku3dLayer?.classList.add('active');
+    window.Miku3D?.setModel(currentCharacterModel);
+    window.Miku3D?.setMode('3d');
+  } else {
+    miku3dLayer?.classList.remove('active');
+    window.Miku3D?.setMode('media');
+    playRandomDailyVideo();
+  }
+}
+
+function showMediaFile(media, { muted = true, loop = true } = {}) {
+  if (!media || typeof media.url !== 'string') return Promise.reject(new Error('Invalid media'));
+  const source = media.url;
+  if (hasExtension(media.name, IMAGE_EXTENSIONS)) {
     mikuVideo.pause();
     mikuVideo.style.display = 'none';
     mikuImage.src = source;
@@ -245,7 +248,7 @@ function renderCameraConnectionState() {
 if (emotionBadge) {
   renderCameraConnectionState();
   emotionBadge.addEventListener('click', () => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !backendAuthenticated) {
       isCameraConnected = false;
       isCameraConnecting = false;
       renderCameraConnectionState();
@@ -256,19 +259,22 @@ if (emotionBadge) {
     isCameraConnecting = shouldConnect;
     if (!shouldConnect) isCameraConnected = false;
     renderCameraConnectionState();
-    ws.send(JSON.stringify({ type: 'toggle_camera', state: shouldConnect }));
+    sendOrQueueBackendMessage({ type: 'toggle_camera', state: shouldConnect });
   });
 }
 
 // 2. Miku Animation Player State Machine
-function playRandomDailyVideo() {
+async function playRandomDailyVideo() {
+  if (is3dMode()) return;
+  if (mikuState !== 'daily') return;
+  await refreshMedia('daily');
   if (mikuState !== 'daily') return;
   if (gifFiles.length === 0) {
     console.warn("No supported animation or image files found in miku/gif/");
     return;
   }
   const randomFile = gifFiles[Math.floor(Math.random() * gifFiles.length)];
-  showMediaFile(path.join(gifDir, randomFile)).catch(err => console.error("Playback error:", err));
+  await showMediaFile(randomFile);
 
   // Set rotation timer for 30s
   clearTimeout(rotationTimer);
@@ -284,7 +290,8 @@ document.getElementById('miku-display').addEventListener('dblclick', (event) => 
 });
 
 // 3. Play Dance mode
-function startDance(index = null) {
+async function startDance(index = null) {
+  await refreshMedia('dance');
   if (danceFiles.length === 0) {
     showChatBubble(t('status.no_dance'), false);
     return;
@@ -295,6 +302,7 @@ function startDance(index = null) {
     currentAudio = null;
   }
   mikuState = 'dancing';
+  miku3dLayer?.classList.remove('active');
   hideChatBubble();
   talentPanel.classList.add('hide');
   timerPanel.classList.add('hide');
@@ -312,7 +320,7 @@ function startDance(index = null) {
   const randomFile = danceFiles[currentDanceIndex];
   mikuImage.style.display = 'none';
   mikuVideo.style.display = 'block';
-  mikuVideo.src = 'file:///' + path.join(danceDir, randomFile).replace(/\\/g, '/');
+  mikuVideo.src = randomFile.url;
   mikuVideo.muted = false;
   mikuVideo.loop = false;
   
@@ -325,13 +333,15 @@ function startDance(index = null) {
 }
 
 // 4. Play Sing mode (Playlist Player)
-function startSingPlaylist(index = 0) {
+async function startSingPlaylist(index = 0) {
+  await refreshMedia('sing');
   if (singFiles.length === 0) {
     showChatBubble(t('status.no_sing'), false);
     return;
   }
   clearTimeout(rotationTimer);
   mikuState = 'singing';
+  miku3dLayer?.classList.remove('active');
   isPlayingSing = true;
   hideChatBubble();
   talentPanel.classList.add('hide');
@@ -345,14 +355,14 @@ function startSingPlaylist(index = 0) {
     currentAudio.pause();
   }
   
-  currentAudio = new Audio('file:///' + path.join(singDir, randomFile).replace(/\\/g, '/'));
+  currentAudio = new Audio(randomFile.url);
   if (typeof currentVolume !== 'undefined') currentAudio.volume = currentVolume;
   currentAudio.play().catch(err => {
     console.error("Sing audio play error:", err);
     stopSingOrDance();
   });
   
-  songTitle.textContent = randomFile;
+  songTitle.textContent = randomFile.name;
   playerPlay.textContent = "||";
   updateStatus(t('status.singing'), "#bf73ff");
   
@@ -380,7 +390,12 @@ function stopSingOrDance() {
   // Restore header
   document.getElementById('viewport-header').classList.remove('header-folded');
   updateStatus(t('status.idle'), "#39c5bb");
-  playRandomDailyVideo();
+  if (is3dMode()) {
+    miku3dLayer?.classList.add('active');
+    window.Miku3D?.setMode('3d');
+  } else {
+    playRandomDailyVideo();
+  }
 }
 
 // When video ends (useful for dance mode)
@@ -395,30 +410,24 @@ bubbleDance.addEventListener('click', startDance);
 bubbleSing.addEventListener('click', () => startSingPlaylist(Math.floor(Math.random() * singFiles.length)));
 bubbleDismiss.addEventListener('click', () => {
   hideChatBubble();
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'bubble_dismissed' }));
-  }
+  sendOrQueueBackendMessage({ type: 'bubble_dismissed' });
 });
 
 // Care Popup Event Handlers
 careChatBtn.addEventListener('click', () => {
   hideCarePopup();
   ipcRenderer.send('open-chat');
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'care_popup_dismissed' }));
-    ws.send(JSON.stringify({ 
-      type: 'chat_request', 
-      text: t('btn.care_chat'), 
-      hidden_context: "[System]: The user just clicked 'Chat' from a proactive care popup because they were feeling negative emotions recently. Please start the conversation by gently asking what's bothering them and offer your comfort."
-    }));
-  }
+  sendOrQueueBackendMessage({ type: 'care_popup_dismissed' });
+  sendOrQueueBackendMessage({
+    type: 'chat_request',
+    text: t('btn.care_chat'),
+    hidden_context: "[System]: The user just clicked 'Chat' from a proactive care popup because they were feeling negative emotions recently. Please start the conversation by gently asking what's bothering them and offer your comfort.",
+  });
 });
 
 careDismissBtn.addEventListener('click', () => {
   hideCarePopup();
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'care_popup_dismissed' }));
-  }
+  sendOrQueueBackendMessage({ type: 'care_popup_dismissed' });
 });
 
 actionDance.addEventListener('click', startDance);
@@ -528,14 +537,20 @@ timerToggle.addEventListener('click', () => {
 
 // IPC Listener for dynamic model changes from Settings Window
 ipcRenderer.on('change-model', (event, selectedModel) => {
+  if (typeof selectedModel !== 'string') return;
   currentModelType = selectedModel;
   console.log("Renderer: Received model change command from IPC:", selectedModel);
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'change_model',
-      model_type: selectedModel
-    }));
-  }
+  sendOrQueueBackendMessage({ type: 'change_model', model_type: selectedModel });
+});
+
+ipcRenderer.on('change-display-mode', (event, mode) => {
+  applyDisplayMode(mode);
+});
+
+ipcRenderer.on('change-character-model', (event, modelId) => {
+  if (typeof modelId !== 'string') return;
+  currentCharacterModel = modelId;
+  if (is3dMode()) window.Miku3D?.setModel(modelId);
 });
 
 // When user changes LLM in settings, force re-sync is not needed — llm-changed IPC already forwards.
@@ -544,6 +559,7 @@ startBtn.addEventListener('click', () => {
   const mins = parseInt(durationInput.value) || 30;
   focusTimeTotal = mins * 60;
   focusTimeRemaining = focusTimeTotal;
+  focusDeadlineMs = Date.now() + focusTimeTotal * 1000;
   isPaused = false;
   
   const now = new Date();
@@ -556,12 +572,7 @@ startBtn.addEventListener('click', () => {
   updateCountdownDisplay();
   
   // Notify Python Backend
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'start_focus',
-      duration_minutes: mins
-    }));
-  }
+  sendOrQueueBackendMessage({ type: 'start_focus', duration_minutes: mins });
   
   updateStatus(t('status.focus', { min: mins }), "#39c5bb");
 
@@ -592,9 +603,8 @@ function updateCountdownDisplay() {
 
 function tickTimer() {
   if (isPaused) return;
-  
+  focusTimeRemaining = Math.max(0, Math.ceil((focusDeadlineMs - Date.now()) / 1000));
   if (focusTimeRemaining > 0) {
-    focusTimeRemaining--;
     updateCountdownDisplay();
   } else {
     // Timer reached 0!
@@ -605,21 +615,19 @@ function tickTimer() {
     timerPanel.classList.remove('is-active');
     
     // Notify Backend & requesting end-of-period report
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'end_focus',
-        completed: true
-      }));
-    }
+    sendOrQueueBackendMessage({ type: 'end_focus', completed: true });
   }
 }
 
 pauseBtn.addEventListener('click', () => {
+  if (!isPaused) {
+    focusTimeRemaining = Math.max(0, Math.ceil((focusDeadlineMs - Date.now()) / 1000));
+  } else {
+    focusDeadlineMs = Date.now() + focusTimeRemaining * 1000;
+  }
   isPaused = !isPaused;
   pauseBtn.textContent = isPaused ? "►" : "||";
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'pause_focus', paused: isPaused }));
-  }
+  sendOrQueueBackendMessage({ type: 'pause_focus', paused: isPaused });
 });
 
 stopBtn.addEventListener('click', () => {
@@ -630,12 +638,7 @@ stopBtn.addEventListener('click', () => {
   timerPanel.classList.remove('is-active');
   updateStatus(t('status.interrupted'), "#ff5f56");
   
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'end_focus',
-      completed: false
-    }));
-  }
+  sendOrQueueBackendMessage({ type: 'end_focus', completed: false });
 });
 
 // Dummy updateStatus for compatibility
@@ -647,30 +650,9 @@ function updateStatus(text, color) {
 let wsRetryDelay = 1000;
 const WS_RETRY_MAX = 15000;
 let backendReady = false;
-
-/** Resolve backend WS URL. Prefer 13939; runtime port written to user/ws_port.json. */
-function getBackendWsUrl() {
-  try {
-    const portFile = path.join(projectRoot, 'user', 'ws_port.json');
-    // Packaged: user dir may live under userData — also try sibling of backend
-    const candidates = [
-      portFile,
-      path.join(__dirname, '..', 'user', 'ws_port.json'),
-      process.env.MIKU_USER_DIR ? path.join(process.env.MIKU_USER_DIR, 'ws_port.json') : null,
-    ].filter(Boolean);
-    for (const p of candidates) {
-      if (fs.existsSync(p)) {
-        const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
-        const host = cfg.host || '127.0.0.1';
-        const port = cfg.port || 13939;
-        return `ws://${host}:${port}`;
-      }
-    }
-  } catch (e) {
-    console.warn('Failed to read ws_port.json', e);
-  }
-  return 'ws://127.0.0.1:13939';
-}
+let backendAuthenticated = false;
+let reconnectTimer = null;
+let authenticationTimer = null;
 
 // Hoisted — avoid reallocating map on every 1Hz emotion_update
 const EMOTION_UI_MAP = {
@@ -687,36 +669,68 @@ const EMOTION_UI_MAP = {
 
 let configSynced = false;
 const pendingBackendMessages = [];
-let pendingChatTimeout = null;
+const pendingChatTimeouts = new Map();
+
+function isObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
 
 function sendOrQueueBackendMessage(message) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (!isObject(message) || typeof message.type !== 'string') return;
+  if (ws && ws.readyState === WebSocket.OPEN && backendAuthenticated) {
     ws.send(JSON.stringify(message));
     return;
+  }
+  if (pendingBackendMessages.length >= 100) {
+    const dropped = pendingBackendMessages.shift();
+    if (dropped?.request_id && settleChatRequest(dropped.request_id)) {
+      ipcRenderer.send('chat-send-failed', t('chat.error.queue_full'));
+    }
   }
   pendingBackendMessages.push(message);
 }
 
 function flushPendingBackendMessages() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN || !backendAuthenticated || !configSynced) return;
   while (pendingBackendMessages.length) {
     ws.send(JSON.stringify(pendingBackendMessages.shift()));
   }
 }
 
-function armChatTimeout() {
-  clearTimeout(pendingChatTimeout);
-  pendingChatTimeout = setTimeout(() => {
-    ipcRenderer.send('chat-send-failed', '聊天服务暂时没有响应，请稍后重试。');
+function armChatTimeout(requestId) {
+  const timer = setTimeout(() => {
+    pendingChatTimeouts.delete(requestId);
+    const queuedIndex = pendingBackendMessages.findIndex((message) => message.request_id === requestId);
+    if (queuedIndex >= 0) pendingBackendMessages.splice(queuedIndex, 1);
+    ipcRenderer.send('chat-send-failed', t('chat.error.timeout'));
   }, 20000);
+  pendingChatTimeouts.set(requestId, timer);
+}
+
+function settleChatRequest(requestId) {
+  if (requestId && !pendingChatTimeouts.has(requestId)) return false;
+  const id = requestId || pendingChatTimeouts.keys().next().value;
+  if (!id) return false;
+  clearTimeout(pendingChatTimeouts.get(id));
+  pendingChatTimeouts.delete(id);
+  return true;
+}
+
+function chatErrorMessage(error) {
+  const keyByCode = {
+    invalid_chat_text: 'chat.error.invalid_text',
+    invalid_hidden_context: 'chat.error.invalid_context',
+    chat_failed: 'chat.error.failed',
+    invalid_chat_reply: 'chat.error.failed',
+  };
+  return t(keyByCode[error] || 'chat.error.failed');
 }
 
 async function syncConfigToBackend(force = false) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN || !backendAuthenticated) return;
   if (configSynced && !force) return;
-  configSynced = true;
   ws.send(JSON.stringify({ type: 'change_model', model_type: currentModelType }));
-  ws.send(JSON.stringify({ type: 'set_lang', lang: require('./i18n').getCurrentLang() }));
+  ws.send(JSON.stringify({ type: 'set_lang', lang: getCurrentLang() }));
   try {
     const cfg = await ipcRenderer.invoke('get-selected-llm');
     if (cfg && (cfg.apiKey || cfg.baseUrl)) {
@@ -730,16 +744,23 @@ async function syncConfigToBackend(force = false) {
   } catch (e) {
     console.error('Failed to sync LLM config', e);
   }
+  configSynced = true;
+  flushPendingBackendMessages();
 }
 
-function connectBackend() {
+async function connectBackend() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
+  let connection;
   try {
-    const url = getBackendWsUrl();
-    console.log('Connecting backend WS:', url);
-    ws = new WebSocket(url);
+    connection = await ipcRenderer.invoke('backend-connection');
+    if (!connection || typeof connection.url !== 'string' || typeof connection.token !== 'string') {
+      scheduleReconnect();
+      return;
+    }
+    console.log('Connecting authenticated backend WS:', connection.url);
+    ws = new WebSocket(connection.url);
   } catch (e) {
     console.warn('WebSocket construct failed', e);
     scheduleReconnect();
@@ -751,13 +772,36 @@ function connectBackend() {
     updateStatus(t('status.idle'), "#39c5bb");
     wsRetryDelay = 1000;
     configSynced = false;
-    ws.send(JSON.stringify({ type: 'ping' }));
-    flushPendingBackendMessages();
+    backendAuthenticated = false;
+    ws.send(JSON.stringify({
+      type: 'authenticate',
+      token: connection.token,
+      launch_session: connection.launchSession || '',
+    }));
+    clearTimeout(authenticationTimer);
+    authenticationTimer = setTimeout(() => {
+      if (!backendAuthenticated && ws) ws.close(4001, 'Authentication timeout');
+    }, 5000);
   };
 
   ws.onmessage = (event) => {
     try {
+      if (typeof event.data !== 'string' || event.data.length > 2_000_000) return;
       const data = JSON.parse(event.data);
+      if (!isObject(data) || typeof data.type !== 'string') return;
+
+      if (data.type === 'authenticated') {
+        if (data.ok !== true) {
+          ws.close(4003, 'Authentication rejected');
+          return;
+        }
+        clearTimeout(authenticationTimer);
+        backendAuthenticated = true;
+        ws.send(JSON.stringify({ type: 'ping' }));
+        syncConfigToBackend(false);
+        return;
+      }
+      if (!backendAuthenticated) return;
 
       // Handshake once per connection — avoid thrashing change_model/change_llm
       if (data.type === 'backend_ready' || data.type === 'pong') {
@@ -781,9 +825,10 @@ function connectBackend() {
 
       // Real-time emotion update
       if (data.type === 'emotion_update') {
+        if (typeof data.emotion !== 'string' || !Number.isFinite(data.confidence)) return;
         const info = EMOTION_UI_MAP[data.emotion] || EMOTION_UI_MAP.neutral;
 
-        const percent = Math.round(data.confidence * 100);
+        const percent = Math.round(Math.max(0, Math.min(1, data.confidence)) * 100);
         const emojiEl = document.getElementById('emotion-emoji');
         const labelEl = document.getElementById('emotion-label');
         const confEl  = document.getElementById('emotion-conf');
@@ -796,32 +841,39 @@ function connectBackend() {
         if (confEl) {
           confEl.textContent = data.emotion === 'no_face' ? '--%' : percent + '%';
         }
+        window.Miku3D?.setEmotion(data.emotion);
       }
       
       // LLM bubble trigger
-      if (data.type === 'trigger_bubble') {
+      if (data.type === 'trigger_bubble' && typeof data.text === 'string') {
         showChatBubble(data.text, data.show_actions !== false);
       }
       
       // Proactive care trigger
-      if (data.type === 'trigger_care_popup') {
+      if (data.type === 'trigger_care_popup' && typeof data.text === 'string') {
         showCarePopup(data.text);
       }
       
       // Period Report display
-      if (data.type === 'focus_report') {
+      if (data.type === 'focus_report' && isObject(data)) {
         showReportCard(data);
       }
       
-      // Chat reply
+      // Chat reply, including backend validation and provider failures.
       if (data.type === 'chat_reply') {
-        clearTimeout(pendingChatTimeout);
-        pendingChatTimeout = null;
-        ipcRenderer.send('chat-reply-from-backend', data.text);
+        const reply = chatProtocol.parseReply(data);
+        if (!reply) return;
+        const accepted = settleChatRequest(reply.requestId);
+        if (reply.requestId && !accepted) return;
+        if (!reply.ok) {
+          ipcRenderer.send('chat-send-failed', chatErrorMessage(reply.error));
+          return;
+        }
+        ipcRenderer.send('chat-reply-from-backend', reply.text);
       }
       
       // Chat history
-      if (data.type === 'chat_history_response') {
+      if (data.type === 'chat_history_response' && Array.isArray(data.history)) {
         ipcRenderer.send('chat-history-from-backend', data.history);
       }
     } catch (e) {
@@ -835,7 +887,9 @@ function connectBackend() {
 
   ws.onclose = () => {
     backendReady = false;
+    backendAuthenticated = false;
     configSynced = false;
+    clearTimeout(authenticationTimer);
     isCameraConnected = false;
     isCameraConnecting = false;
     console.warn(`Backend connection lost. Retrying in ${wsRetryDelay}ms...`);
@@ -850,9 +904,13 @@ function connectBackend() {
 }
 
 function scheduleReconnect() {
+  if (reconnectTimer) return;
   const delay = wsRetryDelay;
   wsRetryDelay = Math.min(WS_RETRY_MAX, Math.floor(wsRetryDelay * 1.6));
-  setTimeout(connectBackend, delay);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectBackend();
+  }, delay);
 }
 
 // 8. Period Emotion Report display (Now opens in separate window)
@@ -864,14 +922,21 @@ function showReportCard(data) {
 
 // Forward chat message from chat window to backend
 ipcRenderer.on('forward-chat-to-backend', (event, payload) => {
-  armChatTimeout();
-  if (typeof payload === 'string') {
-    sendOrQueueBackendMessage({ type: 'chat_request', text: payload });
+  const request = chatProtocol.sanitizeRequest(payload);
+  if (request === null) {
+    ipcRenderer.send('chat-send-failed', t('chat.error.invalid_text'));
+    return;
+  }
+  const requestId = window.crypto.randomUUID();
+  armChatTimeout(requestId);
+  if (typeof request === 'string') {
+    sendOrQueueBackendMessage({ type: 'chat_request', text: request, request_id: requestId });
   } else {
     sendOrQueueBackendMessage({
       type: 'chat_request',
-      text: payload.text,
-      hidden_context: payload.hidden_context,
+      text: request.text,
+      hidden_context: request.hidden_context,
+      request_id: requestId,
     });
   }
 });
@@ -899,13 +964,24 @@ ipcRenderer.on('action-from-chat', (event, action) => {
 
 // App Initialization
 mikuState = 'daily';
-playRandomDailyVideo();
+refreshMedia().then(async () => {
+  if (gifFiles.length === 0 && !is3dMode()) {
+    throw new Error('No supported animation or image files found in miku/gif/');
+  }
+  applyDisplayMode(currentDisplayMode);
+  ipcRenderer.send('renderer-ready', {
+    dailyMediaCount: gifFiles.length,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+}).catch((error) => {
+  console.error('Renderer initialization failed:', error);
+});
 
 ipcRenderer.on('language-changed', (event, lang) => {
+  setCurrentLang(lang);
   applyI18n();
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'set_lang', lang }));
-  }
+  sendOrQueueBackendMessage({ type: 'set_lang', lang });
 });
 
 // Apply i18n on startup
@@ -913,22 +989,20 @@ applyI18n();
 
 // Re-apply i18n + notify backend when language changes
 ipcRenderer.on('lang-changed', (event, lang) => {
+  setCurrentLang(lang);
   applyI18n();
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'set_lang', lang }));
-  }
+  sendOrQueueBackendMessage({ type: 'set_lang', lang });
 });
 
 // Forward LLM config change to backend
 ipcRenderer.on('llm-changed', (event, config) => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'change_llm',
-      base_url: config.baseUrl,
-      api_key:  config.apiKey,
-      model:    config.model
-    }));
-  }
+  if (!isObject(config)) return;
+  sendOrQueueBackendMessage({
+    type: 'change_llm',
+    base_url: typeof config.baseUrl === 'string' ? config.baseUrl : '',
+    api_key: typeof config.apiKey === 'string' ? config.apiKey : '',
+    model: typeof config.model === 'string' ? config.model : '',
+  });
 });
 
 // Dynamic Window Size Setup
@@ -983,14 +1057,9 @@ const currentWindowSize = ipcRenderer.sendSync('get-config', 'miku-window-size')
 ipcRenderer.send('size-changed', currentWindowSize);
 
 // Launch backend unless launcher already hosts it (MIKU_EXTERNAL_BACKEND=1)
-const externalBackend = process.env.MIKU_EXTERNAL_BACKEND === '1';
+const externalBackend = window.miku.runtime.externalBackend;
 if (!externalBackend) {
-  const runtimePy = path.join(projectRoot, 'runtime', 'python', 'python.exe');
-  const venvPython = path.join(projectRoot, 'backend', '.venv', 'Scripts', 'python.exe');
-  const pythonExe = fs.existsSync(runtimePy)
-    ? runtimePy
-    : (fs.existsSync(venvPython) ? venvPython : 'python');
-  ipcRenderer.send('start-backend', pythonExe);
+  ipcRenderer.send('start-backend');
 } else {
   console.log('External backend mode: skip spawn, only connect WS');
 }

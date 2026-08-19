@@ -1,5 +1,5 @@
-const { ipcRenderer } = require('electron');
-const { t, getCurrentLang, applyI18n } = require('./i18n');
+const ipcRenderer = window.miku.ipc;
+const { t, getCurrentLang, setCurrentLang, applyI18n } = window.MikuI18n;
 
 const LS_SEL_API   = 'miku-sel-api';    // selected api id
 const LS_SEL_MODEL = 'miku-sel-model';  // selected model string
@@ -25,10 +25,14 @@ function loadApisSync() {
 
 async function saveApis(list) {
   try {
-    _apisCache = list || [];
-    await ipcRenderer.invoke('apis-save', _apisCache);
+    const result = await ipcRenderer.invoke('apis-save', list || []);
+    if (!result?.ok) throw new Error(result?.error || 'Save failed');
+    _apisCache = await ipcRenderer.invoke('apis-load') || [];
+    return true;
   } catch (e) {
     console.error('Failed to save apis via IPC', e);
+    alert(e.message);
+    return false;
   }
 }
 
@@ -47,17 +51,7 @@ function escapeHtml(str) {
 
 // ── Broadcast current LLM selection to backend (via main process) ─────────────
 async function broadcastLlmConfig() {
-  try {
-    const cfg = await ipcRenderer.invoke('get-selected-llm');
-    ipcRenderer.send('llm-changed', {
-      baseUrl: cfg.baseUrl || '',
-      apiKey: cfg.apiKey || '',
-      model: cfg.model || '',
-    });
-  } catch (e) {
-    console.error('broadcastLlmConfig failed', e);
-    ipcRenderer.send('llm-changed', { baseUrl: '', apiKey: '', model: '' });
-  }
+  ipcRenderer.send('llm-changed');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -165,11 +159,63 @@ document.addEventListener('DOMContentLoaded', () => {
     ipcRenderer.send('size-changed', sizeSelect.value);
   });
 
+  // ── Character display mode ──────────────────────────────────────────────
+  const displayModeSelect = document.getElementById('display-mode-select');
+  displayModeSelect.value = ipcRenderer.sendSync('get-config', 'miku-display-mode') || 'media';
+  displayModeSelect.addEventListener('change', () => {
+    const mode = displayModeSelect.value === '3d' ? '3d' : 'media';
+    ipcRenderer.send('set-config', {key: 'miku-display-mode', val: mode});
+    ipcRenderer.send('display-mode-changed', mode);
+  });
+
+  // ── Character model selection ───────────────────────────────────────────
+  const characterModelSelect = document.getElementById('character-model-select');
+  const characterModelTip = document.getElementById('character-model-tip');
+  const savedCharacterModel = ipcRenderer.sendSync('get-config', 'miku-character-model') || '';
+  ipcRenderer.invoke('list-character-models').then((models) => {
+    const list = Array.isArray(models) ? models : [];
+    characterModelSelect.replaceChildren();
+    if (!list.length) {
+      const option = new Option('未找到模型', '');
+      characterModelSelect.add(option);
+      characterModelSelect.disabled = true;
+      characterModelTip.textContent = '将 .pmx/.pmd 或 .model3.json 连同资源放入 miku/models/<模型名>/。';
+      return;
+    }
+    for (const model of list) {
+      const typeLabel = model.type === 'live2d' ? 'Live2D' : 'MMD';
+      characterModelSelect.add(new Option(`${model.name} (${typeLabel})`, model.id));
+    }
+    const selected = list.some((model) => model.id === savedCharacterModel)
+      ? savedCharacterModel
+      : list[0].id;
+    characterModelSelect.value = selected;
+    if (selected !== savedCharacterModel) {
+      ipcRenderer.send('set-config', { key: 'miku-character-model', val: selected });
+    }
+    const selectedModel = list.find((model) => model.id === selected);
+    characterModelTip.textContent = selectedModel?.type === 'live2d'
+      ? `已识别 ${selectedModel.motions?.length || 0} 个动作和 ${selectedModel.expressions?.length || 0} 个表情。`
+      : 'MMD 模型会保留原始纹理目录。';
+  }).catch((error) => {
+    console.error('Failed to scan character models:', error);
+    characterModelSelect.disabled = true;
+    characterModelTip.textContent = '模型扫描失败，请查看启动器日志。';
+  });
+
+  characterModelSelect.addEventListener('change', () => {
+    const modelId = characterModelSelect.value;
+    if (!modelId) return;
+    ipcRenderer.send('set-config', { key: 'miku-character-model', val: modelId });
+    ipcRenderer.send('character-model-changed', modelId);
+  });
+
   // ── Language Select ──────────────────────────────────────────────────────
   const langSelect = document.getElementById('lang-select');
   langSelect.value = getCurrentLang();
   langSelect.addEventListener('change', () => {
     const lang = langSelect.value;
+    setCurrentLang(lang);
     ipcRenderer.send('set-config', {key: 'miku-language', val: lang});
     applyAllTranslations();
     renderApiList();          // re-render API list with new i18n
@@ -180,7 +226,8 @@ document.addEventListener('DOMContentLoaded', () => {
     ipcRenderer.send('lang-changed', lang);
   });
 
-  ipcRenderer.on('language-changed', () => {
+  ipcRenderer.on('language-changed', (event, lang) => {
+    setCurrentLang(lang);
     langSelect.value = getCurrentLang();
     applyAllTranslations();
     renderApiList();
@@ -309,11 +356,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (api) {
         apiFormName.value   = api.name;
         apiFormUrl.value    = api.baseUrl;
-        apiFormKey.value    = api.apiKey;
+        apiFormKey.value    = '';
+        apiFormKey.placeholder = api.hasApiKey ? '•••••••• (leave blank to keep)' : t('api.form.key');
         apiFormModels.value = api.models.join(', ');
       }
     } else {
       apiFormName.value = apiFormUrl.value = apiFormKey.value = apiFormModels.value = '';
+      apiFormKey.placeholder = t('api.form.key');
     }
     apiFormModels.disabled = true;
     apiFormModels.style.opacity = '0.6';
@@ -323,29 +372,19 @@ document.addEventListener('DOMContentLoaded', () => {
   async function autoFetchModels() {
     const url = apiFormUrl.value.trim();
     const key = apiFormKey.value.trim();
-    if (!url || !key) {
+    if (!url || (!key && !editingId)) {
       apiFormModels.disabled = false;
       apiFormModels.style.opacity = '1';
       return;
     }
     apiFormModels.value = t('api.fetching_models') || 'Fetching...';
     try {
-      let safeUrl = url.replace(/\/+$/, '');
-      let res = await fetch(`${safeUrl}/v1/models`, { headers: { 'Authorization': `Bearer ${key}` } }).catch(() => null);
-      if (!res || !res.ok) {
-        res = await fetch(`${safeUrl}/models`, { headers: { 'Authorization': `Bearer ${key}` } }).catch(() => null);
-      }
-      if (res && res.ok) {
-        const data = await res.json();
-        if (data && data.data && Array.isArray(data.data)) {
-          const models = data.data.map(m => m.id);
-          apiFormModels.value = models.join(', ');
-        } else {
-          apiFormModels.value = '';
-        }
-      } else {
-        apiFormModels.value = '';
-      }
+      const models = await ipcRenderer.invoke('api-fetch-models', {
+        baseUrl: url,
+        apiKey: key,
+        apiId: editingId || '',
+      });
+      apiFormModels.value = Array.isArray(models) ? models.join(', ') : '';
     } catch (e) {
       console.error('Auto fetch models failed', e);
       apiFormModels.value = '';
@@ -399,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       apis.push({ id: uid(), name, baseUrl: url, apiKey: key, models });
     }
-    await saveApis(apis);
+    if (!await saveApis(apis)) return;
     renderApiList();
     closeForm();
     broadcastLlmConfig();
@@ -407,7 +446,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function deleteApi(id) {
     let apis = loadApisSync().filter(a => a.id !== id);
-    await saveApis(apis);
+    if (!await saveApis(apis)) return;
     if (ipcRenderer.sendSync('get-config', LS_SEL_API) === id) {
       ipcRenderer.send('set-config', {key: LS_SEL_API, val: null});
       ipcRenderer.send('set-config', {key: LS_SEL_MODEL, val: null});
@@ -443,8 +482,112 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let stream = null;
   let capturedData = [];
+  let activeCeremonySocket = null;
+  let priorCameraConnected = null;
 
   async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function parseBackendMessage(event) {
+    if (typeof event.data !== 'string' || event.data.length > 20_000_000) return null;
+    try {
+      const value = JSON.parse(event.data);
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function waitForBackendMessage(ws, predicate, timeoutMs = 5000, onMessage = null) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Backend response timeout'));
+      }, timeoutMs);
+      const onClose = () => {
+        cleanup();
+        reject(new Error('Backend connection closed'));
+      };
+      const onData = (event) => {
+        const data = parseBackendMessage(event);
+        if (!data) return;
+        if (onMessage) onMessage(data);
+        if (!predicate(data)) return;
+        cleanup();
+        resolve(data);
+      };
+      function cleanup() {
+        clearTimeout(timer);
+        ws.removeEventListener('message', onData);
+        ws.removeEventListener('close', onClose);
+      }
+      ws.addEventListener('message', onData);
+      ws.addEventListener('close', onClose);
+    });
+  }
+
+  async function connectAuthenticatedBackend() {
+    const connection = await ipcRenderer.invoke('backend-connection');
+    if (!connection || typeof connection.url !== 'string' || typeof connection.token !== 'string') {
+      throw new Error('Backend endpoint is unavailable');
+    }
+    const ws = new WebSocket(connection.url);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('WebSocket timeout')), 5000);
+      ws.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
+      ws.addEventListener('error', () => { clearTimeout(timer); reject(new Error('WebSocket error')); }, { once: true });
+    });
+    ws.send(JSON.stringify({
+      type: 'authenticate',
+      token: connection.token,
+      launch_session: connection.launchSession || '',
+    }));
+    const authenticated = await waitForBackendMessage(ws, (data) => data.type === 'authenticated');
+    if (authenticated.ok !== true) {
+      ws.close();
+      throw new Error('Backend authentication failed');
+    }
+    return ws;
+  }
+
+  async function queryCameraState(ws) {
+    ws.send(JSON.stringify({ type: 'get_camera_status' }));
+    const status = await waitForBackendMessage(
+      ws,
+      (data) => data.type === 'camera_status' && typeof data.connected === 'boolean',
+    );
+    return status.connected;
+  }
+
+  function stopCeremonyMedia() {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      ceremonyVideo.srcObject = null;
+    }
+  }
+
+  function cleanupCeremony() {
+    stopCeremonyMedia();
+    if (activeCeremonySocket?.readyState === WebSocket.OPEN && priorCameraConnected !== null) {
+      activeCeremonySocket.send(JSON.stringify({ type: 'toggle_camera', state: priorCameraConnected }));
+    }
+  }
+
+  async function restoreCeremonyCamera() {
+    stopCeremonyMedia();
+    if (activeCeremonySocket?.readyState !== WebSocket.OPEN || priorCameraConnected === null) return;
+    activeCeremonySocket.send(JSON.stringify({ type: 'toggle_camera', state: priorCameraConnected }));
+    try {
+      await waitForBackendMessage(
+        activeCeremonySocket,
+        (data) => data.type === 'camera_status' && data.connected === priorCameraConnected,
+      );
+    } catch (error) {
+      console.warn('Could not confirm camera restoration:', error.message);
+    }
+  }
+
+  window.addEventListener('beforeunload', cleanupCeremony);
 
   async function waitForContinue(btnText = "继续") {
     return new Promise(resolve => {
@@ -485,42 +628,20 @@ document.addEventListener('DOMContentLoaded', () => {
     ceremonyModalProgress.style.width = '0%';
     capturedData = [];
 
-    const wsUrl = (() => {
-      try {
-        const p = require('path');
-        const f = require('fs');
-        const portFile = p.join(__dirname, '..', 'user', 'ws_port.json');
-        if (f.existsSync(portFile)) {
-          const cfg = JSON.parse(f.readFileSync(portFile, 'utf8'));
-          return `ws://${cfg.host || '127.0.0.1'}:${cfg.port || 13939}`;
-        }
-      } catch (_) {}
-      return 'ws://127.0.0.1:13939';
-    })();
-    let ws = new WebSocket(wsUrl);
-    
-    // Wait for WS to connect
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("WebSocket timeout")), 2000);
-      ws.onopen = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      ws.onerror = () => {
-        clearTimeout(timer);
-        reject(new Error("WebSocket error"));
-      };
-    });
-
     try {
+      activeCeremonySocket = await connectAuthenticatedBackend();
+      priorCameraConnected = await queryCameraState(activeCeremonySocket);
       ceremonyModalText.textContent = t('ceremony.starting');
-      ws.send(JSON.stringify({ type: 'toggle_camera', state: false }));
-      await sleep(1500);
+      activeCeremonySocket.send(JSON.stringify({ type: 'toggle_camera', state: false }));
+      await waitForBackendMessage(
+        activeCeremonySocket,
+        (data) => data.type === 'camera_status' && data.connected === false,
+      );
 
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       ceremonyVideo.srcObject = stream;
       await new Promise(r => ceremonyVideo.onloadedmetadata = r);
-      ceremonyVideo.play();
+      await ceremonyVideo.play();
 
       await sleep(1000);
 
@@ -541,80 +662,64 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Stop camera
       stream.getTracks().forEach(t => t.stop());
+      stream = null;
       ceremonyVideo.srcObject = null;
 
       ceremonyModalText.textContent = t('ceremony.training');
       ceremonyModalProgress.style.width = '0%';
 
       // Send to backend via existing WebSocket
-      ws.send(JSON.stringify({
+      activeCeremonySocket.send(JSON.stringify({
         type: 'start_lora_training',
         master_name: masterName,
         data: capturedData
       }));
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === 'training_progress') {
-          ceremonyModalProgress.style.width = data.progress + '%';
-        } else if (data.type === 'training_complete') {
-          if (data.success) {
-            ceremonyModal.style.display = 'none';
-            ceremonyIdleSection.style.display = 'none';
-            ceremonySuccessSection.style.display = 'block';
-            ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
-            ipcRenderer.send('set-config', {key: 'miku-master-name', val: masterName});
-            // ceremony done is now file based
-          } else {
-            alert("认主失败：" + data.error);
-            ceremonyModal.style.display = 'none';
+      const result = await waitForBackendMessage(
+        activeCeremonySocket,
+        (data) => data.type === 'training_complete',
+        30 * 60 * 1000,
+        (data) => {
+          if (data.type === 'training_progress' && Number.isFinite(data.progress)) {
+            ceremonyModalProgress.style.width = Math.max(0, Math.min(100, data.progress)) + '%';
           }
-          setTimeout(() => ws.close(), 500);
-        }
-      };
-
-      ws.onerror = (e) => {
-        alert("无法连接到后端，认主失败。");
-        ceremonyModal.style.display = 'none';
-      };
-
+        },
+      );
+      if (result.success !== true) throw new Error(String(result.error || 'Training failed'));
+      ceremonyModal.style.display = 'none';
+      ceremonyIdleSection.style.display = 'none';
+      ceremonySuccessSection.style.display = 'block';
+      ceremonySuccessMsg.textContent = t('ceremony.success_title', { name: masterName });
+      ipcRenderer.send('set-config', {key: 'miku-master-name', val: masterName});
     } catch (e) {
       console.error(e);
-      alert("无法访问摄像头，认主失败：" + e.message);
+      alert("认主失败：" + e.message);
       ceremonyModal.style.display = 'none';
-      if (stream) stream.getTracks().forEach(t => t.stop());
-      if (ws && ws.readyState === WebSocket.OPEN) {
-          setTimeout(() => ws.close(), 500);
-      }
+    } finally {
+      await restoreCeremonyCamera();
+      if (activeCeremonySocket) activeCeremonySocket.close();
+      activeCeremonySocket = null;
+      priorCameraConnected = null;
     }
   }
 
   btnStartCeremony.addEventListener('click', startCeremony);
   btnReinitCeremony.addEventListener('click', startCeremony);
-  btnDeleteCeremony.addEventListener('click', () => {
+  btnDeleteCeremony.addEventListener('click', async () => {
     if (confirm(t('ceremony.confirm_delete'))) {
-      const wsUrl = (() => {
-        try {
-          const p = require('path');
-          const f = require('fs');
-          const portFile = p.join(__dirname, '..', 'user', 'ws_port.json');
-          if (f.existsSync(portFile)) {
-            const cfg = JSON.parse(f.readFileSync(portFile, 'utf8'));
-            return `ws://${cfg.host || '127.0.0.1'}:${cfg.port || 13939}`;
-          }
-        } catch (_) {}
-        return 'ws://127.0.0.1:13939';
-      })();
-      let ws = new WebSocket(wsUrl);
-      ws.onopen = () => {
+      let ws = null;
+      try {
+        ws = await connectAuthenticatedBackend();
         ws.send(JSON.stringify({ type: 'delete_lora_data' }));
-        setTimeout(() => ws.close(), 1000);
-      };
-      // ceremony done is now file based
-      ipcRenderer.send('set-config', {key: 'miku-master-name', val: null});
-      ceremonyNameInput.value = '';
-      ceremonyIdleSection.style.display = 'flex';
-      ceremonySuccessSection.style.display = 'none';
+        await sleep(250);
+        ipcRenderer.send('set-config', {key: 'miku-master-name', val: null});
+        ceremonyNameInput.value = '';
+        ceremonyIdleSection.style.display = 'flex';
+        ceremonySuccessSection.style.display = 'none';
+      } catch (error) {
+        alert("删除失败：" + error.message);
+      } finally {
+        if (ws) ws.close();
+      }
     }
   });
 

@@ -1,45 +1,52 @@
 @echo off
-setlocal
+setlocal EnableExtensions
+chcp 65001 >nul
 
 echo.
-echo  ========================================
-echo  ^|                                      ^|
-echo  ^|   Miku Cure - Install Script  v1.1.2    ^|
-echo  +==========================================+
+echo  ==========================================
+echo  ^|   Miku Cure - Install Script v1.2.0   ^|
+echo  ==========================================
 echo.
 
 set "ROOT=%~dp0"
 set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
 set "VENV=%BACKEND%\.venv"
+set "PYTHONUTF8=1"
+set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+if defined MIKU_DOWNLOAD_PROXY (
+    set "HTTP_PROXY=%MIKU_DOWNLOAD_PROXY%"
+    set "HTTPS_PROXY=%MIKU_DOWNLOAD_PROXY%"
+    set "ELECTRON_GET_USE_PROXY=1"
+    set "GLOBAL_AGENT_HTTP_PROXY=%MIKU_DOWNLOAD_PROXY%"
+    set "GLOBAL_AGENT_HTTPS_PROXY=%MIKU_DOWNLOAD_PROXY%"
+    if not defined ELECTRON_MIRROR set "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/"
+    echo  Using download proxy: %MIKU_DOWNLOAD_PROXY%
+)
 
-:: -- Check Python (3.10 – 3.13) --
-echo [1/5] Checking Python...
-python -c "import sys; v=sys.version_info[:2]; sys.exit(0 if v>=(3,10) and v<=(3,13) else 1)" >nul 2>&1
+echo [1/5] Checking Python 3.13.12 (64-bit)...
+python -c "import struct,sys; raise SystemExit(0 if sys.version_info[:3]==(3,13,12) and struct.calcsize('P')==8 else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo  ERROR: Python 3.10 – 3.13 is required for compatibility!
-    echo  Current version:
-    python --version
+    echo  ERROR: 64-bit Python 3.13.12 is required so portable native extensions match the embedded runtime.
+    python --version 2>nul
     pause
     exit /b 1
 )
-for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo   OK: %%v
+for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo   OK: %%v (64-bit)
 
-:: -- Check Node.js --
 echo [2/5] Checking Node.js...
-node --version >nul 2>&1
+node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit((a===22&&b>=12)||a>22?0:1)" >nul 2>&1
 if errorlevel 1 (
-    echo  ERROR: Node.js not found. Please install Node.js 18+ and add it to PATH.
+    echo  ERROR: Node.js 22.12 or newer is required by Electron 43.
+    node --version 2>nul
     pause
     exit /b 1
 )
 for /f "tokens=*" %%v in ('node --version 2^>^&1') do echo   OK: Node.js %%v
 
-:: -- Python virtual environment and dependencies --
 echo.
-echo [3/5] Installing Python dependencies...
+echo [3/5] Installing locked Python runtime and launcher dependencies...
 if not exist "%VENV%\Scripts\python.exe" (
-    echo   Creating virtual environment...
     python -m venv "%VENV%"
     if errorlevel 1 (
         echo  ERROR: Failed to create virtual environment.
@@ -47,87 +54,129 @@ if not exist "%VENV%\Scripts\python.exe" (
         exit /b 1
     )
 )
-
-echo   Upgrading pip...
-"%VENV%\Scripts\python.exe" -m pip install --upgrade pip -q
-
-:: Check for local torch .whl package (root or 开发/)
-set "TORCH_WHL="
-for %%f in ("%ROOT%torch-*.whl") do set "TORCH_WHL=%%f"
-if not defined TORCH_WHL (
-    for %%f in ("%ROOT%开发\torch-*.whl") do set "TORCH_WHL=%%f"
+"%VENV%\Scripts\python.exe" -c "import struct,sys; raise SystemExit(0 if sys.version_info[:3]==(3,13,12) and struct.calcsize('P')==8 else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo  ERROR: Existing backend\.venv was created by a different Python runtime.
+    echo         Remove backend\.venv and rerun install.bat with 64-bit Python 3.13.12.
+    pause
+    exit /b 1
 )
+
+"%VENV%\Scripts\python.exe" -m pip install --upgrade "pip==26.1.2" "setuptools==81.0.0"
+if errorlevel 1 (
+    echo  ERROR: Failed to install the locked packaging toolchain.
+    pause
+    exit /b 1
+)
+
+set "TORCH_WHL="
+set "TORCHVISION_WHL="
+for %%f in ("%ROOT%torch-2.12.1+cpu*.whl" "%ROOT%??????\torch-2.12.1+cpu*.whl") do if exist "%%~ff" if not defined TORCH_WHL set "TORCH_WHL=%%~ff"
+for %%f in ("%ROOT%torchvision-0.27.1+cpu*.whl" "%ROOT%??????\torchvision-0.27.1+cpu*.whl") do if exist "%%~ff" if not defined TORCHVISION_WHL set "TORCHVISION_WHL=%%~ff"
 
 if defined TORCH_WHL (
-    echo   Found local PyTorch package, installing from file...
-    "%VENV%\Scripts\pip.exe" install "%TORCH_WHL%" -q
+    echo   Installing local CPU PyTorch wheel...
+    "%VENV%\Scripts\python.exe" -m pip install "%TORCH_WHL%"
+    if errorlevel 1 goto :torch_failed
+    if defined TORCHVISION_WHL (
+        "%VENV%\Scripts\python.exe" -m pip install "%TORCHVISION_WHL%"
+    ) else (
+        "%VENV%\Scripts\python.exe" -m pip install "torchvision==0.27.1+cpu" --index-url https://download.pytorch.org/whl/cpu
+    )
+    if errorlevel 1 goto :torch_failed
 ) else (
-    echo   Installing CPU-only PyTorch from PyPI...
-    echo   (For GPU support, install the appropriate CUDA build manually.)
-    "%VENV%\Scripts\pip.exe" install torch torchvision --index-url https://download.pytorch.org/whl/cpu -q
+    echo   Installing locked CPU-only PyTorch...
+    "%VENV%\Scripts\python.exe" -m pip install "torch==2.12.1+cpu" "torchvision==0.27.1+cpu" --index-url https://download.pytorch.org/whl/cpu
+    if errorlevel 1 goto :torch_failed
 )
 
-echo   Installing remaining Python dependencies...
-"%VENV%\Scripts\pip.exe" install -r "%BACKEND%\requirements.txt" -q
+echo   Removing conflicting OpenCV distributions before the locked install...
+"%VENV%\Scripts\python.exe" -m pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless torchaudio >nul
 if errorlevel 1 (
-    echo  ERROR: Failed to install Python dependencies. Check requirements.txt.
+    echo  ERROR: Failed to remove conflicting OpenCV distributions.
     pause
     exit /b 1
 )
 
-:: Verify critical imports (MediaPipe Tasks face stack)
-echo   Verifying MediaPipe...
-"%VENV%\Scripts\python.exe" -c "import mediapipe as mp; from mediapipe.tasks.python import vision; assert hasattr(vision,'FaceDetector'); print('  MediaPipe', getattr(mp,'__version__','?'), 'Tasks OK')"
+"%VENV%\Scripts\python.exe" -m pip install -r "%BACKEND%\requirements.txt" -r "%ROOT%launcher\requirements.txt"
 if errorlevel 1 (
-    echo  WARNING: MediaPipe Tasks import failed. Face detection will use Haar fallback.
-    echo  Try: "%VENV%\Scripts\pip.exe" install --force-reinstall "mediapipe>=0.10.14,<0.11"
-) else (
-    echo   OK: MediaPipe verified.
+    echo  ERROR: Failed to install locked application dependencies.
+    pause
+    exit /b 1
 )
 
-echo   OK: Python dependencies installed.
+"%VENV%\Scripts\python.exe" -c "import struct; from importlib.metadata import distributions,version; import cv2,mediapipe,numpy,openai,PIL,torch,torchvision,websockets; import PySide6,PyInstaller; installed={d.metadata['Name'].lower() for d in distributions()}; assert struct.calcsize('P')==8; assert torch.version.cuda is None and not torch.cuda.is_available(); assert version('torch')=='2.12.1+cpu' and version('torchvision')=='0.27.1+cpu'; assert version('opencv-contrib-python')=='4.13.0.92'; assert not installed.intersection({'opencv-python','opencv-python-headless','opencv-contrib-python-headless'}); assert tuple(map(int,PIL.__version__.split('.')[:2])) >= (12,3); print('  Runtime verified:',torch.__version__,'CPU, MediaPipe',mediapipe.__version__)"
+if errorlevel 1 (
+    echo  ERROR: Dependency verification failed or a CUDA PyTorch build was installed.
+    pause
+    exit /b 1
+)
+"%VENV%\Scripts\python.exe" -m pip check
+if errorlevel 1 (
+    echo  ERROR: Installed Python distributions have incompatible requirements.
+    pause
+    exit /b 1
+)
+echo   OK: Python runtime and source launcher are ready.
 
-:: -- Node.js dependencies --
 echo.
-echo [4/5] Installing Node.js dependencies (Electron)...
+echo [4/5] Installing locked Electron dependencies...
 cd /d "%FRONTEND%"
-call npm install --prefer-offline
+call npm.cmd ci --prefer-offline --no-audit
 if errorlevel 1 (
-    echo  ERROR: npm install failed.
+    echo  ERROR: npm ci failed. package.json and package-lock.json must agree.
     pause
     exit /b 1
 )
-echo   OK: Node.js dependencies installed.
+node "%FRONTEND%\node_modules\electron\install.js"
+if errorlevel 1 (
+    echo  ERROR: Electron binary download or checksum verification failed.
+    pause
+    exit /b 1
+)
+if not exist "%FRONTEND%\node_modules\electron\dist\electron.exe" (
+    echo  ERROR: Electron binary is missing after npm ci.
+    pause
+    exit /b 1
+)
+echo   OK: Electron installed from package-lock.json.
 
-:: -- Train WebUI dependencies --
 echo.
-echo [5/5] Installing Node.js dependencies (Train WebUI)...
+echo [5/5] Optional training environment...
+if /i not "%MIKU_INSTALL_TRAINING%"=="1" (
+    echo   Skipped. Set MIKU_INSTALL_TRAINING=1 to install and build training tools.
+    goto :install_done
+)
+
+"%VENV%\Scripts\python.exe" -m pip install "pandas==3.0.3" "matplotlib==3.11.0" "scikit-learn==1.9.0" "fastapi==0.138.0" "uvicorn==0.49.0" "psutil==7.2.2"
+if errorlevel 1 (
+    echo  ERROR: Failed to install optional training dependencies.
+    pause
+    exit /b 1
+)
 cd /d "%ROOT%train\frontend"
-call npm install --prefer-offline
+call npm.cmd ci --prefer-offline --no-audit
 if errorlevel 1 (
-    echo  ERROR: npm install failed for Train WebUI.
+    echo  ERROR: npm ci failed for Train WebUI.
     pause
     exit /b 1
 )
-call npm run build
+call npm.cmd run build
 if errorlevel 1 (
-    echo  ERROR: npm run build failed for Train WebUI.
+    echo  ERROR: Train WebUI build failed.
     pause
     exit /b 1
 )
-echo   OK: Train WebUI built successfully.
+echo   OK: Optional training environment is ready.
 
-:: -- Done --
+:install_done
 echo.
-echo  +==========================================+
-echo  ^|   Installation complete!                 ^|
-echo  ^|   Run start.bat to launch the app.       ^|
-echo  +==========================================+
+echo  Installation complete. Run start.bat to launch Miku Cure.
 echo.
-
-echo  TIP: Configure LLM APIs in the Settings panel (keys are encrypted at rest).
-echo  TIP: Smoke test: backend\.venv\Scripts\python.exe backend\test_smoke_e2e.py
-echo  TIP: Live camera:  backend\.venv\Scripts\python.exe backend\test_smoke_e2e.py --live
-echo.
-
 pause
+exit /b 0
+
+:torch_failed
+echo  ERROR: CPU PyTorch installation failed.
+pause
+exit /b 1

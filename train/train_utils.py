@@ -168,8 +168,10 @@ def evaluate_pytorch_model(model, test_loader, model_path):
     model = model.to(device)
     try:
         state = torch.load(model_path, map_location=device, weights_only=True)
-    except TypeError:
-        state = torch.load(model_path, map_location=device)
+    except TypeError as exc:
+        raise RuntimeError(
+            "This PyTorch version cannot load model weights safely; upgrade PyTorch."
+        ) from exc
     model.load_state_dict(state)
     model.eval()
     all_preds = []

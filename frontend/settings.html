@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; media-src 'self' file: data: blob:; connect-src ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Miku Settings</title>
   <style>
     * {
@@ -149,6 +150,23 @@
       background: #f9fbfd;
       border-radius: 8px;
       border: 1px solid #e8edf2;
+    }
+
+    .model-recommendation {
+      margin-top: -2px;
+      font-size: 12px;
+      color: #7b8999;
+      line-height: 1.5;
+    }
+
+    .model-recommendation a {
+      color: #269f97;
+      text-decoration: none;
+    }
+
+    .model-recommendation a:hover {
+      color: #39c5bb;
+      text-decoration: underline;
     }
 
     /* ── About Page ──────────────────────────────────────────── */
@@ -417,6 +435,24 @@
       </div>
 
       <div class="section">
+        <label class="field-label" data-i18n="general.display_mode.label">角色显示模式</label>
+        <select class="miku-select" id="display-mode-select">
+          <option value="media" data-i18n-option="display_mode.media">媒体表情包</option>
+          <option value="3d" data-i18n-option="display_mode.3d">3D 桌宠</option>
+        </select>
+        <div class="tip">模型模式支持 MMD (.pmx/.pmd) 与 Live2D Cubism (.model3.json)。</div>
+      </div>
+
+      <div class="section">
+        <label class="field-label">桌宠模型</label>
+        <select class="miku-select" id="character-model-select">
+          <option value="">正在扫描 miku/models...</option>
+        </select>
+        <div class="tip" id="character-model-tip">每个模型放在 miku/models 下的独立文件夹中。</div>
+        <div class="model-recommendation">建议下载 <a href="https://space.bilibili.com/131661224" target="_blank" rel="noopener noreferrer">玄宝酱</a> 模型，<a href="https://www.bilibili.com/video/BV1B1Mo67E3g" target="_blank" rel="noopener noreferrer">下载视频</a></div>
+      </div>
+
+      <div class="section">
         <label class="field-label" data-i18n="general.lang.label">界面语言</label>
         <select class="miku-select" id="lang-select">
           <option value="zh" data-i18n-option="lang.zh">中文</option>
@@ -498,25 +534,25 @@
       <div class="about-name">Miku Cure</div>
       <div class="about-ver" id="about-ver"></div>
       <div class="about-desc" data-i18n="about.desc">
-        一款由实时面部表情识别和 DeepSeek AI 驱动的桌面情绪伴侣。
+        一款由实时面部表情识别和可配置的 OpenAI 兼容在线 LLM 驱动的桌面情绪伴侣。
       </div>
 
       <div class="about-divider"></div>
 
       <div class="about-privacy" data-i18n="about.privacy">
-        🔒 本系统没有服务器，不会上传任何数据。
+        🔒 摄像头与情绪识别在本机处理；启用在线 LLM 后，聊天和报告内容会发送至您配置的 API 服务。
       </div>
 
       <div class="about-divider"></div>
 
       <div class="about-thanks-label" data-i18n="about.thanks.label">特别鸣谢</div>
-      <a class="about-thanks-link" href="https://x.com/miratsu169" target="_blank">
+      <a class="about-thanks-link" href="https://x.com/miratsu169" target="_blank" rel="noopener noreferrer">
         @miratsu169
       </a>
 
       <div class="about-divider"></div>
 
-      <a class="about-github" href="https://github.com/momo325/miku-cure" target="_blank"
+      <a class="about-github" href="https://github.com/momo325/miku-cure" target="_blank" rel="noopener noreferrer"
          data-i18n="about.github">
         github.com/momo325/miku-cure
       </a>
@@ -538,6 +574,7 @@
     <button class="train-btn" id="ceremony-modal-continue" style="display:none; margin-top:20px; font-size:14px; padding:10px 24px;">继续</button>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="settings_renderer.js"></script>
 </body>
 </html>

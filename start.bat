@@ -1,62 +1,43 @@
 @echo off
-setlocal
-
-echo.
-echo  ========================================
-echo  ^|                                      ^|
-echo  ^|   Miku Cure - Start  v1.1.2              ^|
-echo  +==========================================+
-echo.
+setlocal EnableExtensions
+chcp 65001 >nul
 
 set "ROOT=%~dp0"
 set "FRONTEND=%ROOT%frontend"
 set "VENV=%ROOT%backend\.venv"
+set "PYTHONUTF8=1"
 
-:: -- Check installation --
-if not exist "%VENV%\Scripts\python.exe" (
-    echo  ERROR: Virtual environment not found.
-    echo  Please run install.bat first.
-    pause
-    exit /b 1
+echo.
+echo  ==========================================
+echo  ^|       Miku Cure - Start v1.2.0        ^|
+echo  ==========================================
+echo.
+
+rem This source-tree entry point must prefer current launcher source. Otherwise
+rem a stale root EXE can control newer backend/Electron protocol code.
+if exist "%VENV%\Scripts\pythonw.exe" if exist "%ROOT%launcher\main.py" (
+    if not exist "%FRONTEND%\node_modules\electron\dist\electron.exe" (
+        echo  ERROR: Electron is not installed. Run install.bat first.
+        pause
+        exit /b 1
+    )
+    echo  Starting source launcher from the project virtual environment...
+    start "" "%VENV%\Scripts\pythonw.exe" "%ROOT%launcher\main.py"
+    if errorlevel 1 (
+        echo  ERROR: Failed to start the source launcher.
+        pause
+        exit /b 1
+    )
+    exit /b 0
 )
 
-if not exist "%FRONTEND%\node_modules\electron" (
-    echo  ERROR: Electron not found.
-    echo  Please run install.bat first.
-    pause
-    exit /b 1
-)
-
-:: -- Prefer desktop launcher if present --
+rem Fallback for a deliberately launcher-only tree.
 if exist "%ROOT%MikuCure-Launcher.exe" (
-    echo  Starting MikuCure-Launcher.exe ...
-    echo  Use the launcher to start/stop backend and desktop pet.
-    echo.
+    echo  Source launcher unavailable; starting packaged launcher...
     start "" "%ROOT%MikuCure-Launcher.exe"
     exit /b 0
 )
 
-if exist "%ROOT%launcher\main.py" (
-    echo  Starting launcher from source...
-    cd /d "%ROOT%launcher"
-    where python >nul 2>&1 && (
-        start "" python main.py
-        exit /b 0
-    )
-)
-
-:: -- Fallback: Electron manages backend --
-echo  Starting Miku Cure via Electron...
-echo  The backend is managed automatically by Electron.
-echo  Close the desktop pet window to fully exit.
-echo  Configure LLM APIs in Settings if chat is needed.
-echo.
-echo  Tip: run launcher\build.bat then use MikuCure-Launcher.exe for service control.
-echo.
-
-cd /d "%FRONTEND%"
-call npm start
-
-echo.
-echo  Miku Cure has exited. Goodbye!
-timeout /t 2 >nul
+echo  ERROR: Launcher source/runtime is incomplete. Run install.bat first.
+pause
+exit /b 1

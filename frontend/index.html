@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-SyW3RF4O3ZqtdPZQNzUXssjMxLokC23dzkdRYelDrs4='; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; media-src 'self' file: data: blob:; connect-src 'self' file: ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Miku情绪伴侣</title>
   <link rel="stylesheet" href="style.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-container" id="app">
@@ -17,6 +17,15 @@
       <div class="miku-display-area" id="miku-display">
         <video id="miku-video" autoplay loop muted src=""></video>
         <img id="miku-image" alt="" src="">
+        <div class="miku-3d-layer" id="miku-3d-layer">
+          <canvas id="miku-3d-canvas"></canvas>
+          <div class="miku-3d-status" id="miku-3d-status"></div>
+          <button class="character-adjust-toggle" id="character-adjust-toggle" type="button"
+            title="调整模型位置和缩放" aria-label="调整模型位置和缩放" aria-pressed="false">🧤</button>
+          <div class="character-adjust-help" id="character-adjust-help">左键拖拽，滚轮缩放</div>
+          <button class="character-adjust-dismiss" id="character-adjust-dismiss" type="button"
+            title="退出模型调整" aria-label="退出模型调整">✕</button>
+        </div>
 
         <!-- Floating Transparent Header (inside GIF container at top) -->
         <div class="viewport-header" id="viewport-header">
@@ -115,6 +124,15 @@
 
   </div>
 
+  <script src="i18n.js"></script>
+  <script src="./node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+  <script src="./node_modules/@pixi/unsafe-eval/dist/browser/unsafe-eval.min.js"></script>
+  <script src="./node_modules/@hazart-pkg/live2d-core/live2dcubismcore.min.js"></script>
+  <script src="./node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
+  <script type="importmap">
+    { "imports": { "three": "./node_modules/three/build/three.module.js" } }
+  </script>
+  <script src="3d_runtime.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

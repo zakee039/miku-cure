@@ -1,60 +1,46 @@
 {
   "name": "miku-cure",
   "productName": "Miku Cure",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "An interactive desktop pet with emotion recognition",
   "main": "main.js",
   "author": "momo325",
   "license": "MIT",
   "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder --win"
+    "test": "node test_security.js && node test_preload.js && node test_main_smoke.js",
+    "package:portable": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ../package_portable.ps1"
   },
   "devDependencies": {
-    "electron": "^31.7.7",
-    "electron-builder": "^24.13.3"
+    "electron": "43.2.0"
   },
-  "build": {
-    "appId": "com.miku.cure",
-    "productName": "Miku Cure",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "**/*",
-      "!run_log.txt",
-      "!dist/**"
-    ],
-    "extraResources": [
-      {
-        "from": "../backend",
-        "to": "backend",
-        "filter": [
-          "**/*",
-          "!.venv/**",
-          "!__pycache__/**",
-          "!**/__pycache__/**",
-          "!*.pyc",
-          "!test_*.py"
-        ]
-      },
-      {
-        "from": "../miku",
-        "to": "miku",
-        "filter": ["**/*"]
-      }
-    ],
-    "asarUnpack": [
-      "assets/**"
-    ],
-    "win": {
-      "target": ["nsis"],
-      "icon": "assets/miku.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+  "files": [
+    "assets/MIKU-PAUSE.mp4",
+    "assets/MIKU-SING.mp4",
+    "assets/miku.ico",
+    "3d_runtime.js",
+    "chat.html",
+    "chat_renderer.js",
+    "i18n.js",
+    "index.html",
+    "main.js",
+    "paths.js",
+    "preload.js",
+    "renderer.js",
+    "report.css",
+    "report.html",
+    "report_renderer.js",
+    "security.js",
+    "settings.html",
+    "settings_renderer.js",
+    "style.css"
+  ],
+  "dependencies": {
+    "@hazart-pkg/live2d-core": "^1.0.1",
+    "@pixi/unsafe-eval": "^6.5.10",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10",
+    "three": "^0.152.2"
   }
 }

@@ -1,7 +1,10 @@
 """启动环境检查（子进程强制隐藏控制台）。"""
 from __future__ import annotations
 
+import subprocess
+import time
 from dataclasses import dataclass, field
+from typing import Callable
 
 from .paths import (
     BACKEND_DIR,
@@ -15,7 +18,50 @@ from .paths import (
     VENV_PYTHON,
     resolve_backend_python,
 )
-from .winproc import run_hidden
+from .winproc import popen_hidden
+
+
+class EnvCheckCancelled(RuntimeError):
+    """Raised internally when a launcher worker is asked to stop."""
+
+
+def _dependency_probe(
+    python: str,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+    timeout: float = 60.0,
+) -> tuple[int, str, str]:
+    """Run the import probe while remaining responsive to QThread shutdown."""
+    proc = popen_hidden(
+        [python, "-c", "import cv2,numpy,torch; print('OK', torch.__version__)"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(BACKEND_DIR),
+    )
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            stdout, stderr = proc.communicate(timeout=0.1)
+            return proc.returncode, stdout or "", stderr or ""
+        except subprocess.TimeoutExpired:
+            should_cancel = cancelled is not None and cancelled()
+            timed_out = time.monotonic() >= deadline
+            if not should_cancel and not timed_out:
+                continue
+
+            try:
+                proc.terminate()
+                proc.communicate(timeout=1.0)
+            except (OSError, subprocess.SubprocessError):
+                try:
+                    proc.kill()
+                    proc.communicate(timeout=1.0)
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            if should_cancel:
+                raise EnvCheckCancelled("environment check cancelled")
+            raise subprocess.TimeoutExpired(proc.args, timeout)
 
 
 @dataclass
@@ -39,9 +85,15 @@ class EnvReport:
         return f"环境检查 {ok_n}/{len(self.items)} 通过 · {'就绪' if self.all_required_ok else '存在问题'}"
 
 
-def run_env_check(progress=None) -> EnvReport:
+def run_env_check(
+    progress=None,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+) -> EnvReport:
     """progress: optional callable(message: str, percent: int)."""
     def _p(msg: str, pct: int) -> None:
+        if cancelled is not None and cancelled():
+            raise EnvCheckCancelled("environment check cancelled")
         if progress:
             progress(msg, pct)
 
@@ -69,15 +121,13 @@ def run_env_check(progress=None) -> EnvReport:
     _p("环境检查中：加载依赖（torch / opencv）…", 45)
     if py_ok and str(py):
         try:
-            r = run_hidden(
-                [str(py), "-c", "import cv2,numpy,torch; print('OK', torch.__version__)"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                cwd=str(BACKEND_DIR),
+            returncode, stdout, stderr = _dependency_probe(
+                str(py), cancelled=cancelled
             )
-            dep_ok = r.returncode == 0 and "OK" in (r.stdout or "")
-            dep_detail = (r.stdout or r.stderr or "").strip()[:200]
+            dep_ok = returncode == 0 and "OK" in stdout
+            dep_detail = (stdout or stderr).strip()[:200]
+        except EnvCheckCancelled:
+            raise
         except Exception as e:
             dep_detail = str(e)
     items.append(CheckItem("核心依赖 (cv2/numpy/torch)", dep_ok, dep_detail or "未检测"))
