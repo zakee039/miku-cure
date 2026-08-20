@@ -3,6 +3,7 @@
   const layer = document.getElementById('miku-3d-layer');
   const displayArea = document.getElementById('miku-display');
   const status = document.getElementById('miku-3d-status');
+  const feedToggle = document.getElementById('character-feed-toggle');
   const adjustToggle = document.getElementById('character-adjust-toggle');
   const adjustDismiss = document.getElementById('character-adjust-dismiss');
   const ipcRenderer = window.miku?.ipc;
@@ -26,6 +27,12 @@
   let adjustmentEnabled = false;
   let dragState;
   let saveViewTimer;
+  let actionTimer;
+  let interactionMotion = { name: '', until: 0 };
+  let musicActionActive = false;
+  let interactionPointer;
+  let clickTimer;
+  let circleTrace;
   let characterViews = readCharacterViews();
 
   const LIVE2D_FRAMING = Object.freeze({
@@ -35,6 +42,16 @@
   });
 
   const WATERMARK_EXPRESSION_NAME = /(?:watermark|水印)/i;
+  const LIVE2D_ACTIONS = Object.freeze({
+    feed: { expression: /^(?:葱|大葱)$/i, duration: 3200 },
+    sing: { expression: /^唱歌$/i, duration: 0 },
+    heart: { expression: /^比心$/i, duration: 3600 },
+    lean: { expression: /^前倾$/i, duration: 2200 },
+    size: { expression: /^(?:QQ人|大小变)$/i, duration: 2600 },
+    dizzy: { expression: /^(?:圈圈|晕晕)$/i, duration: 3600 },
+    cry: { expression: /^(?:哭哭|哭泣|QQ人)$/i, duration: 5200 },
+    blush: { expression: /^脸红$/i, duration: 2600 },
+  });
 
   function setStatus(message) {
     if (status) status.textContent = message;
@@ -108,6 +125,94 @@
     }
   }
 
+  function resetAction() {
+    window.clearTimeout(actionTimer);
+    actionTimer = undefined;
+    interactionMotion = { name: '', until: 0 };
+    live2dModel?.internalModel?.motionManager?.expressionManager?.resetExpression?.();
+    if (musicActionActive) performAction('sing');
+  }
+
+  function findExpression(pattern) {
+    return live2dModel?.internalModel?.motionManager?.expressionManager?.definitions?.find((expression) => (
+      pattern.test(expression.Name || '')
+    ));
+  }
+
+  function performAction(action) {
+    if (!live2dModel || !action || requestedMode !== '3d') return false;
+    const definition = LIVE2D_ACTIONS[action];
+    if (!definition) return false;
+    const expression = findExpression(definition.expression);
+    if (!expression) return false;
+    window.clearTimeout(actionTimer);
+    interactionMotion = { name: action, until: definition.duration ? Date.now() + definition.duration : 0 };
+    live2dModel.expression(expression.Name).catch((error) => {
+      console.warn(`Live2D action failed: ${action}`, error);
+    });
+    if (definition.duration) {
+      actionTimer = window.setTimeout(resetAction, definition.duration);
+    }
+    return true;
+  }
+
+  function getLive2DHitArea(clientX, clientY) {
+    if (!live2dModel || !canvas) return '';
+    const rect = canvas.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const bounds = live2dModel.getBounds();
+    if (!bounds.width || !bounds.height
+      || localX < bounds.x || localX > bounds.x + bounds.width
+      || localY < bounds.y || localY > bounds.y + bounds.height) return '';
+    const x = (localX - bounds.x) / bounds.width;
+    const y = (localY - bounds.y) / bounds.height;
+    if (y < 0.38 && x > 0.27 && x < 0.73) return y < 0.25 ? 'head' : 'face';
+    if (y > 0.3 && y < 0.78 && (x < 0.22 || x > 0.78)) return 'arm';
+    return '';
+  }
+
+  function trackCircle(event) {
+    if (!live2dModel || adjustmentEnabled || requestedMode !== '3d') return;
+    const rect = canvas.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const angle = Math.atan2(event.clientY - centerY, event.clientX - centerX);
+    const radius = Math.hypot(event.clientX - centerX, event.clientY - centerY);
+    if (radius < Math.min(rect.width, rect.height) * 0.17) return;
+    const now = performance.now();
+    if (!circleTrace || now - circleTrace.lastTime > 900) {
+      circleTrace = { lastAngle: angle, turns: 0, lastTime: now, startedAt: now };
+      return;
+    }
+    let delta = angle - circleTrace.lastAngle;
+    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta < -Math.PI) delta += Math.PI * 2;
+    circleTrace.turns += Math.abs(delta) / (Math.PI * 2);
+    circleTrace.lastAngle = angle;
+    circleTrace.lastTime = now;
+    if (circleTrace.turns >= 3 && now - circleTrace.startedAt <= 7000) {
+      performAction('dizzy');
+      noteInteraction();
+      circleTrace = undefined;
+    }
+  }
+
+  let lastInteractionAt = Date.now();
+  let idleReactionShown = false;
+
+  function noteInteraction() {
+    lastInteractionAt = Date.now();
+    idleReactionShown = false;
+  }
+
+  window.setInterval(() => {
+    if (!live2dModel || requestedMode !== '3d' || adjustmentEnabled || idleReactionShown) return;
+    if (Date.now() - lastInteractionAt >= 30 * 60 * 1000) {
+      idleReactionShown = performAction('cry');
+    }
+  }, 60 * 1000);
+
   function frameMmdUpperBody(Box3, Vector3) {
     if (!mmdModel || !camera) return;
     mmdModel.updateMatrixWorld(true);
@@ -147,11 +252,20 @@
 
   function bindAdjustmentEvents(view) {
     view.addEventListener('mousedown', (event) => {
-      if (!adjustmentEnabled) return;
+      if (!adjustmentEnabled && !live2dModel) return;
       event.preventDefault();
       event.stopPropagation();
     });
     view.addEventListener('pointerdown', (event) => {
+      if (!adjustmentEnabled && live2dModel && event.button === 0) {
+        interactionPointer = {
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          moved: false,
+        };
+        return;
+      }
       if (!adjustmentEnabled || event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
@@ -164,6 +278,13 @@
       view.setPointerCapture?.(event.pointerId);
     });
     view.addEventListener('pointermove', (event) => {
+      if (!adjustmentEnabled && live2dModel) {
+        trackCircle(event);
+        if (interactionPointer?.pointerId === event.pointerId
+          && Math.hypot(event.clientX - interactionPointer.clientX, event.clientY - interactionPointer.clientY) > 8) {
+          interactionPointer.moved = true;
+        }
+      }
       if (!dragState || event.pointerId !== dragState.pointerId) return;
       event.preventDefault();
       event.stopPropagation();
@@ -185,6 +306,27 @@
     };
     view.addEventListener('pointerup', finishDrag);
     view.addEventListener('pointercancel', finishDrag);
+    view.addEventListener('pointerup', (event) => {
+      if (!interactionPointer || event.pointerId !== interactionPointer.pointerId) return;
+      const pointer = interactionPointer;
+      interactionPointer = undefined;
+      if (pointer.moved || adjustmentEnabled) return;
+      const action = { head: 'lean', face: 'blush', arm: 'heart' }[
+        getLive2DHitArea(event.clientX, event.clientY)
+      ];
+      if (!action) return;
+      window.clearTimeout(clickTimer);
+      clickTimer = window.setTimeout(() => {
+        if (performAction(action)) noteInteraction();
+      }, 220);
+    });
+    view.addEventListener('dblclick', (event) => {
+      if (adjustmentEnabled || !live2dModel) return;
+      event.preventDefault();
+      event.stopPropagation();
+      window.clearTimeout(clickTimer);
+      if (performAction('size')) noteInteraction();
+    });
     view.addEventListener('wheel', (event) => {
       if (!adjustmentEnabled) return;
       event.preventDefault();
@@ -221,7 +363,10 @@
     const oldLive2dApp = live2dApp;
     renderer = scene = camera = mmdModel = mmdFrame = mmdKeyLight = live2dApp = live2dModel = undefined;
     loading = false;
+    resetAction();
+    circleTrace = undefined;
     layer?.classList.remove('has-model');
+    layer?.classList.remove('has-live2d');
     try {
       oldRenderer?.dispose();
       oldRenderer?.forceContextLoss?.();
@@ -358,6 +503,8 @@
     resizeHandler = fitLive2D;
     window.addEventListener('resize', resizeHandler, { passive: true });
     layer?.classList.add('has-model');
+    layer?.classList.add('has-live2d');
+    if (musicActionActive) performAction('sing');
     console.info('[Character] Live2D model loaded:', entry.name);
   }
 
@@ -484,14 +631,38 @@
     exitAdjustment() {
       setAdjustment(false);
     },
+    performAction(action) {
+      const performed = performAction(action);
+      if (performed) noteInteraction();
+      return performed;
+    },
+    setMusicPlaying(active) {
+      musicActionActive = Boolean(active);
+      if (musicActionActive) {
+        noteInteraction();
+        performAction('sing');
+      } else if (interactionMotion.name === 'sing') {
+        resetAction();
+      }
+    },
+    reactToNegativeReport() {
+      if (performAction('cry')) noteInteraction();
+    },
+    noteInteraction,
     setEmotion(emotion) {
       const offsets = {
         happy: -0.16, surprise: 0.18, anger: 0.12, sadness: -0.1,
         fear: 0.2, disgust: -0.14, contempt: 0.1, neutral: 0,
       };
       yawTarget = offsets[emotion] || 0;
-      chooseExpression(emotion);
+      if (!interactionMotion.name) chooseExpression(emotion);
     },
+  });
+
+  feedToggle?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.Miku3D.performAction('feed');
   });
 
   adjustToggle?.addEventListener('click', (event) => {

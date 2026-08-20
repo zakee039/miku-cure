@@ -153,7 +153,42 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   display: flex;
 }
 
+.character-feed-toggle {
+  position: absolute;
+  left: 8px;
+  bottom: 28px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: all 0.2s ease;
+  -webkit-app-region: no-drag;
+}
+
+.miku-3d-layer.has-live2d .character-feed-toggle {
+  display: flex;
+}
+
+.character-feed-toggle:hover {
+  color: var(--text-primary);
+  transform: scale(1.2);
+}
+
 .miku-3d-layer.is-adjusting .character-adjust-toggle {
+  display: none;
+}
+
+.miku-3d-layer.is-adjusting .character-feed-toggle {
   display: none;
 }
 

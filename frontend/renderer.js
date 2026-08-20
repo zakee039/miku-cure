@@ -302,6 +302,7 @@ async function startDance(index = null) {
     currentAudio = null;
   }
   mikuState = 'dancing';
+  window.Miku3D?.setMusicPlaying(false);
   miku3dLayer?.classList.remove('active');
   hideChatBubble();
   talentPanel.classList.add('hide');
@@ -341,7 +342,7 @@ async function startSingPlaylist(index = 0) {
   }
   clearTimeout(rotationTimer);
   mikuState = 'singing';
-  miku3dLayer?.classList.remove('active');
+  if (!is3dMode()) miku3dLayer?.classList.remove('active');
   isPlayingSing = true;
   hideChatBubble();
   talentPanel.classList.add('hide');
@@ -366,8 +367,14 @@ async function startSingPlaylist(index = 0) {
   playerPlay.textContent = "||";
   updateStatus(t('status.singing'), "#bf73ff");
   
-  // Show MIKU-SING looping video while music is playing
-  playSingStateVideo(SING_VIDEO);
+  if (is3dMode()) {
+    miku3dLayer?.classList.add('active');
+    window.Miku3D?.setMode('3d');
+    window.Miku3D?.setMusicPlaying(true);
+  } else {
+    // Show MIKU-SING looping video while music is playing.
+    playSingStateVideo(SING_VIDEO);
+  }
   
   currentAudio.onended = () => {
     // Auto next song
@@ -383,6 +390,7 @@ function stopSingOrDance() {
   }
   mikuState = 'daily';
   isPlayingSing = false;
+  window.Miku3D?.setMusicPlaying(false);
   mikuVideo.loop = true;
   mikuVideo.muted = true;
   mediaPlayerPanel.classList.add('hide');
@@ -453,15 +461,15 @@ playerPlay.addEventListener('click', () => {
     isPlayingSing = false;
     playerPlay.textContent = "▶";
     updateStatus(t('status.paused'), "#bf73ff");
-    // Switch to MIKU-PAUSE looping video
-    playSingStateVideo(PAUSE_VIDEO);
+    window.Miku3D?.setMusicPlaying(false);
+    if (!is3dMode()) playSingStateVideo(PAUSE_VIDEO);
   } else {
     currentAudio.play().catch(e => console.error(e));
     isPlayingSing = true;
     playerPlay.textContent = "||";
     updateStatus(t('status.singing'), "#bf73ff");
-    // Switch back to MIKU-SING looping video
-    playSingStateVideo(SING_VIDEO);
+    window.Miku3D?.setMusicPlaying(true);
+    if (!is3dMode()) playSingStateVideo(SING_VIDEO);
   }
 });
 
@@ -496,6 +504,7 @@ function hideChatBubble() {
 
 // Care Popup helpers
 function showCarePopup(text) {
+  window.Miku3D?.reactToNegativeReport();
   careText.textContent = text;
   carePopup.classList.remove('hide');
 }
@@ -915,6 +924,14 @@ function scheduleReconnect() {
 
 // 8. Period Emotion Report display (Now opens in separate window)
 function showReportCard(data) {
+  const stats = data?.stats;
+  if (stats && typeof stats === 'object') {
+    const negative = ['sadness', 'anger', 'fear', 'disgust'].reduce((total, key) => (
+      total + (Number(stats[key]) || 0)
+    ), 0);
+    const positive = (Number(stats.happy) || 0) + (Number(stats.neutral) || 0);
+    if (negative > positive) window.Miku3D?.reactToNegativeReport();
+  }
   data.startTime = focusStartTimeStr;
   data.endTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   ipcRenderer.send('open-report', data);
