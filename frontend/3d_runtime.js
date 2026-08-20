@@ -270,7 +270,8 @@
 
   function bindAdjustmentEvents(view) {
     view.addEventListener('mousedown', (event) => {
-      if (!adjustmentEnabled && !getLive2DHitArea(event.clientX, event.clientY)) return;
+      // The canvas is reserved for model interactions. Window dragging starts
+      // from the blank space in the top control bar above this layer.
       event.preventDefault();
       event.stopPropagation();
     });
