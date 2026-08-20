@@ -62,6 +62,11 @@
   const LIVE2D_WATERMARK_PARTS = Object.freeze([
     'Part18', 'Part17', 'Part77', 'PartSketch0',
   ]);
+  // This model was exported for VTube Studio, which restores these base arm
+  // parts during its expression setup. Keep them visible in our renderer too.
+  const XUANBAO_MIKU_BASE_ARM_PARTS = Object.freeze([
+    'Part43', 'Part50', 'Part69', 'Part72',
+  ]);
   const LIVE2D_ACTIONS = Object.freeze({
     feed: { expression: /^(?:葱|大葱)$/i, duration: 3200 },
     sing: { expression: /^唱歌$/i, duration: 0 },
@@ -221,6 +226,11 @@
     }
     for (const partId of watermarkPartIds) {
       coreModel.setPartOpacityById?.(partId, hideModelWatermark ? 0 : 1);
+    }
+    if (selectedModelId === '玄宝 Miku/miku/miku.model3.json') {
+      for (const partId of XUANBAO_MIKU_BASE_ARM_PARTS) {
+        coreModel.setPartOpacityById?.(partId, 1);
+      }
     }
     // Expressions use additive values and this model's idle update runs from
     // PIXI's shared ticker. Write after that update so hand poses stay active.
