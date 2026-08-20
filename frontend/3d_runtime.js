@@ -37,6 +37,7 @@
   let watermarkParameterIds = new Set();
   let watermarkPartIds = [];
   let watermarkTickerBound = false;
+  let activeActionParameters = {};
   let characterViews = readCharacterViews();
 
   const LIVE2D_FRAMING = Object.freeze({
@@ -44,7 +45,10 @@
     // a general bounds-based frame while compensating for that source layout.
     '玄宝 Miku/miku/miku.model3.json': {
       horizontalOffset: -0.24,
-      verticalFill: 1.85,
+      // Preserve enough of the torso to keep the hands visible. This model's
+      // hand poses extend substantially farther than its idle silhouette.
+      verticalFill: 1.5,
+      actionVerticalFill: { heart: 1.25, feed: 1.32, sing: 1.36 },
       hitAreas: [
         { name: 'head', left: 0.31, right: 0.69, top: 0.06, bottom: 0.27 },
         { name: 'face', left: 0.32, right: 0.68, top: 0.27, bottom: 0.52 },
@@ -67,6 +71,15 @@
     dizzy: { expression: /^(?:圈圈|晕晕)$/i, duration: 3600 },
     cry: { expression: /^(?:哭哭|哭泣|QQ人)$/i, duration: 5200 },
     blush: { expression: /^脸红$/i, duration: 2600 },
+  });
+  const XUANBAO_MIKU_ACTION_PARAMETERS = Object.freeze({
+    feed: { Param133: 1, Param134: 0, Param135: 0 },
+    sing: { Param133: 0, Param134: 1, Param135: 0 },
+    heart: { Param133: 0, Param134: 0, Param135: 1 },
+    lean: { Param132: 1 },
+    blush: { Param130: 1 },
+    dizzy: { Param125: 1 },
+    cry: { Param131: 1, Param136: 1 },
   });
 
   function setStatus(message) {
@@ -145,7 +158,9 @@
     window.clearTimeout(actionTimer);
     actionTimer = undefined;
     interactionMotion = { name: '', until: 0 };
+    activeActionParameters = {};
     live2dModel?.internalModel?.motionManager?.expressionManager?.resetExpression?.();
+    fitLive2D();
     if (musicActionActive) performAction('sing');
   }
 
@@ -163,9 +178,13 @@
     if (!expression) return false;
     window.clearTimeout(actionTimer);
     interactionMotion = { name: action, until: definition.duration ? Date.now() + definition.duration : 0 };
+    activeActionParameters = selectedModelId === '玄宝 Miku/miku/miku.model3.json'
+      ? XUANBAO_MIKU_ACTION_PARAMETERS[action] || {}
+      : {};
     live2dModel.expression(expression.Name).catch((error) => {
       console.warn(`Live2D action failed: ${action}`, error);
     });
+    fitLive2D();
     if (definition.duration) {
       actionTimer = window.setTimeout(resetAction, definition.duration);
     }
@@ -194,7 +213,7 @@
     return '';
   }
 
-  function applyWatermarkVisibility() {
+  function applyLive2DOverrides() {
     const coreModel = live2dModel?.internalModel?.coreModel;
     if (!coreModel) return;
     for (const parameterId of watermarkParameterIds) {
@@ -202,6 +221,11 @@
     }
     for (const partId of watermarkPartIds) {
       coreModel.setPartOpacityById?.(partId, hideModelWatermark ? 0 : 1);
+    }
+    // Expressions use additive values and this model's idle update runs from
+    // PIXI's shared ticker. Write after that update so hand poses stay active.
+    for (const [parameterId, value] of Object.entries(activeActionParameters)) {
+      coreModel.setParameterValueById?.(parameterId, value);
     }
   }
 
@@ -395,7 +419,7 @@
     if (resizeHandler) window.removeEventListener('resize', resizeHandler);
     resizeHandler = undefined;
     if (watermarkTickerBound) {
-      window.PIXI?.Ticker?.shared?.remove(applyWatermarkVisibility);
+      window.PIXI?.Ticker?.shared?.remove(applyLive2DOverrides);
       watermarkTickerBound = false;
     }
     const oldRenderer = renderer;
@@ -447,7 +471,11 @@
     // asymmetric hair/accessories stay visually centered.
     const baseScale = Math.max(
       width / naturalWidth * 1.1,
-      height / naturalHeight * (live2dFraming.verticalFill || 2.35),
+      height / naturalHeight * (
+        live2dFraming.actionVerticalFill?.[interactionMotion.name]
+        || live2dFraming.verticalFill
+        || 2.35
+      ),
     );
     const view = currentView();
     live2dModel.scale.set(baseScale * view.scale);
@@ -538,12 +566,12 @@
     // Respect model-provided watermark controls without modifying source assets.
     // Reapply after every model update so motions cannot re-enable the setting.
     window.PIXI.Ticker.shared.add(
-      applyWatermarkVisibility,
+      applyLive2DOverrides,
       undefined,
       window.PIXI.UPDATE_PRIORITY?.LOW ?? -25,
     );
     watermarkTickerBound = true;
-    applyWatermarkVisibility();
+    applyLive2DOverrides();
     fitLive2D();
     resizeHandler = fitLive2D;
     window.addEventListener('resize', resizeHandler, { passive: true });
@@ -723,7 +751,7 @@
   ipcRenderer?.on?.('watermark-visibility-changed', (_event, hidden) => {
     if (typeof hidden !== 'boolean') return;
     hideModelWatermark = hidden;
-    applyWatermarkVisibility();
+    applyLive2DOverrides();
   });
   updateAdjustmentButton();
 })();
