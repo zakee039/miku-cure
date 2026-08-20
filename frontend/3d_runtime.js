@@ -33,6 +33,10 @@
   let interactionPointer;
   let clickTimer;
   let circleTrace;
+  let hideModelWatermark = ipcRenderer?.sendSync?.('get-config', 'miku-hide-model-watermark') !== false;
+  let watermarkParameterIds = new Set();
+  let watermarkPartIds = [];
+  let watermarkTickerBound = false;
   let characterViews = readCharacterViews();
 
   const LIVE2D_FRAMING = Object.freeze({
@@ -42,6 +46,9 @@
   });
 
   const WATERMARK_EXPRESSION_NAME = /(?:watermark|水印)/i;
+  const LIVE2D_WATERMARK_PARTS = Object.freeze([
+    'Part18', 'Part17', 'Part77', 'PartSketch0',
+  ]);
   const LIVE2D_ACTIONS = Object.freeze({
     feed: { expression: /^(?:葱|大葱)$/i, duration: 3200 },
     sing: { expression: /^唱歌$/i, duration: 0 },
@@ -172,6 +179,17 @@
     return '';
   }
 
+  function applyWatermarkVisibility() {
+    const coreModel = live2dModel?.internalModel?.coreModel;
+    if (!coreModel) return;
+    for (const parameterId of watermarkParameterIds) {
+      coreModel.setParameterValueById?.(parameterId, hideModelWatermark ? 0 : 1);
+    }
+    for (const partId of watermarkPartIds) {
+      coreModel.setPartOpacityById?.(partId, hideModelWatermark ? 0 : 1);
+    }
+  }
+
   function trackCircle(event) {
     if (!live2dModel || adjustmentEnabled || requestedMode !== '3d') return;
     const rect = canvas.getBoundingClientRect();
@@ -252,12 +270,13 @@
 
   function bindAdjustmentEvents(view) {
     view.addEventListener('mousedown', (event) => {
-      if (!adjustmentEnabled && !live2dModel) return;
+      if (!adjustmentEnabled && !getLive2DHitArea(event.clientX, event.clientY)) return;
       event.preventDefault();
       event.stopPropagation();
     });
     view.addEventListener('pointerdown', (event) => {
-      if (!adjustmentEnabled && live2dModel && event.button === 0) {
+      if (!adjustmentEnabled && live2dModel && event.button === 0
+        && getLive2DHitArea(event.clientX, event.clientY)) {
         interactionPointer = {
           pointerId: event.pointerId,
           clientX: event.clientX,
@@ -278,7 +297,7 @@
       view.setPointerCapture?.(event.pointerId);
     });
     view.addEventListener('pointermove', (event) => {
-      if (!adjustmentEnabled && live2dModel) {
+      if (!adjustmentEnabled && live2dModel && interactionPointer?.pointerId === event.pointerId) {
         trackCircle(event);
         if (interactionPointer?.pointerId === event.pointerId
           && Math.hypot(event.clientX - interactionPointer.clientX, event.clientY - interactionPointer.clientY) > 8) {
@@ -359,9 +378,15 @@
     frameId = undefined;
     if (resizeHandler) window.removeEventListener('resize', resizeHandler);
     resizeHandler = undefined;
+    if (watermarkTickerBound) {
+      window.PIXI?.Ticker?.shared?.remove(applyWatermarkVisibility);
+      watermarkTickerBound = false;
+    }
     const oldRenderer = renderer;
     const oldLive2dApp = live2dApp;
     renderer = scene = camera = mmdModel = mmdFrame = mmdKeyLight = live2dApp = live2dModel = undefined;
+    watermarkParameterIds = new Set();
+    watermarkPartIds = [];
     loading = false;
     resetAction();
     circleTrace = undefined;
@@ -451,8 +476,12 @@
 
     const motions = Array.isArray(entry.motions) ? entry.motions : [];
     const expressions = Array.isArray(entry.expressions) ? entry.expressions : [];
-    const watermarkParameterIds = await getWatermarkParameterIds(expressions);
+    const nextWatermarkParameterIds = await getWatermarkParameterIds(expressions);
     if (token !== generation || requestedMode !== '3d') return;
+    watermarkParameterIds = nextWatermarkParameterIds;
+    watermarkPartIds = entry.id === '玄宝 Miku/miku/miku.model3.json'
+      ? LIVE2D_WATERMARK_PARTS
+      : [];
     manifest.url = entry.url;
     manifest.FileReferences = manifest.FileReferences || {};
     manifest.FileReferences.Motions = {
@@ -489,16 +518,13 @@
     app.stage.addChild(model);
     // Respect model-provided watermark controls without modifying source assets.
     // Reapply after every model update so motions cannot re-enable the setting.
-    const coreModel = model.internalModel?.coreModel;
-    const disableWatermark = () => {
-      for (const parameterId of watermarkParameterIds) {
-        coreModel?.setParameterValueById?.(parameterId, 0);
-      }
-    };
-    if (watermarkParameterIds.size) {
-      app.ticker.add(disableWatermark);
-      disableWatermark();
-    }
+    window.PIXI.Ticker.shared.add(
+      applyWatermarkVisibility,
+      undefined,
+      window.PIXI.UPDATE_PRIORITY?.LOW ?? -25,
+    );
+    watermarkTickerBound = true;
+    applyWatermarkVisibility();
     fitLive2D();
     resizeHandler = fitLive2D;
     window.addEventListener('resize', resizeHandler, { passive: true });
@@ -674,6 +700,11 @@
     event.preventDefault();
     event.stopPropagation();
     window.Miku3D.exitAdjustment();
+  });
+  ipcRenderer?.on?.('watermark-visibility-changed', (_event, hidden) => {
+    if (typeof hidden !== 'boolean') return;
+    hideModelWatermark = hidden;
+    applyWatermarkVisibility();
   });
   updateAdjustmentButton();
 })();

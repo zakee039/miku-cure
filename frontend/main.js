@@ -801,6 +801,11 @@ ipcMain.on('character-model-changed', (event, modelId) => {
   if (mainWindow) mainWindow.webContents.send('change-character-model', modelId);
 });
 
+ipcMain.on('watermark-visibility-changed', (event, hidden) => {
+  if (!isWindowSender(event, settingsWindow) || typeof hidden !== 'boolean') return;
+  if (mainWindow) mainWindow.webContents.send('watermark-visibility-changed', hidden);
+});
+
 // Independent Report Window
 ipcMain.on('open-report', (event, data) => {
   if (!isWindowSender(event, mainWindow) || !isPlainObject(data)) return;
@@ -1179,7 +1184,7 @@ function saveConfig(config) {
 const CONFIG_KEYS = new Set([
   'miku-language', 'miku-master-name', 'miku-model-type', 'miku-sel-api',
   'miku-sel-model', 'miku-volume', 'miku-window-size', 'miku-display-mode',
-  'miku-character-model', 'miku-character-view',
+  'miku-character-model', 'miku-character-view', 'miku-hide-model-watermark',
 ]);
 
 function sanitizeConfigValue(key, value) {
@@ -1187,6 +1192,7 @@ function sanitizeConfigValue(key, value) {
   if (key === 'miku-language') return ['zh', 'ja', 'en'].includes(value) ? value : undefined;
   if (key === 'miku-window-size') return ['small', 'medium', 'large'].includes(value) ? value : undefined;
   if (key === 'miku-display-mode') return ['media', '3d'].includes(value) ? value : undefined;
+  if (key === 'miku-hide-model-watermark') return typeof value === 'boolean' ? value : undefined;
   if (key === 'miku-character-model') {
     return typeof value === 'string' && listCharacterModels().some((model) => model.id === value)
       ? value

@@ -171,6 +171,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Character model selection ───────────────────────────────────────────
   const characterModelSelect = document.getElementById('character-model-select');
   const characterModelTip = document.getElementById('character-model-tip');
+  const hideModelWatermark = document.getElementById('hide-model-watermark');
+  hideModelWatermark.checked = ipcRenderer.sendSync('get-config', 'miku-hide-model-watermark') !== false;
+  hideModelWatermark.addEventListener('change', () => {
+    const hidden = hideModelWatermark.checked;
+    ipcRenderer.send('set-config', { key: 'miku-hide-model-watermark', val: hidden });
+    ipcRenderer.send('watermark-visibility-changed', hidden);
+  });
   const savedCharacterModel = ipcRenderer.sendSync('get-config', 'miku-character-model') || '';
   ipcRenderer.invoke('list-character-models').then((models) => {
     const list = Array.isArray(models) ? models : [];

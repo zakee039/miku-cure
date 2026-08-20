@@ -169,6 +169,22 @@
       text-decoration: underline;
     }
 
+    .model-watermark-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+      color: #6b7a8d;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .model-watermark-toggle input {
+      width: 14px;
+      height: 14px;
+      accent-color: #39c5bb;
+    }
+
     /* ── About Page ──────────────────────────────────────────── */
     #page-about {
       align-items: center;
@@ -450,6 +466,7 @@
         </select>
         <div class="tip" id="character-model-tip">每个模型放在 miku/models 下的独立文件夹中。</div>
         <div class="model-recommendation">推荐使用 Live2D 模型：<a href="https://www.bilibili.com/video/BV1B1Mo67E3g" target="_blank" rel="noopener noreferrer">玄宝酱初音</a>；可选 MMD 模型：<a href="https://piapro.jp/t/KPU3" target="_blank" rel="noopener noreferrer">ままま初音</a></div>
+        <label class="model-watermark-toggle"><input id="hide-model-watermark" type="checkbox"> 隐藏 Live2D 模型水印</label>
       </div>
 
       <div class="section">

@@ -46,7 +46,7 @@ const SEND_CHANNELS = new Set([
   'action-from-chat', 'action-from-report', 'analyze-report-request',
   'chat-history-from-backend', 'chat-message', 'chat-reply-from-backend',
   'chat-send-failed', 'drag-start', 'hide-pet', 'lang-changed',
-  'llm-changed', 'model-changed', 'display-mode-changed', 'character-model-changed', 'open-chat', 'open-report',
+  'llm-changed', 'model-changed', 'display-mode-changed', 'character-model-changed', 'watermark-visibility-changed', 'open-chat', 'open-report',
   'open-settings', 'request-chat-history', 'resize-window', 'run-train',
   'set-config', 'size-changed', 'start-backend', 'window-drag',
   'renderer-ready',
@@ -61,7 +61,7 @@ const RECEIVE_CHANNELS = new Set([
   'chat-history-from-backend', 'chat-reply-from-backend', 'chat-send-failed',
   'force-adjust-size', 'forward-chat-to-backend',
   'forward-history-request-to-backend', 'lang-changed', 'language-changed',
-  'llm-changed', 'change-display-mode', 'change-character-model', 'load-report', 'populate-chat-input',
+  'llm-changed', 'change-display-mode', 'change-character-model', 'watermark-visibility-changed', 'load-report', 'populate-chat-input',
 ]);
 
 function assertAllowed(set, channel) {

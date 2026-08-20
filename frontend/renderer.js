@@ -284,7 +284,7 @@ async function playRandomDailyVideo() {
 // Double click to switch GIF
 document.getElementById('miku-display').addEventListener('dblclick', (event) => {
   if (event.target.closest('button, input, .emotion-badge')) return;
-  if (mikuState === 'daily') {
+  if (!is3dMode() && mikuState === 'daily') {
     playRandomDailyVideo();
   }
 });
