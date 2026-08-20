@@ -81,6 +81,10 @@
     dizzy: { Param125: 1 },
     cry: { Param131: 1, Param136: 1 },
   });
+  const XUANBAO_MIKU_ACTION_PARAMETER_IDS = Object.freeze([
+    'Param125', 'Param130', 'Param131', 'Param132', 'Param133',
+    'Param134', 'Param135', 'Param136',
+  ]);
 
   function setStatus(message) {
     if (status) status.textContent = message;
@@ -226,6 +230,14 @@
     }
     for (const partId of watermarkPartIds) {
       coreModel.setPartOpacityById?.(partId, hideModelWatermark ? 0 : 1);
+    }
+    if (selectedModelId === '玄宝 Miku/miku/miku.model3.json') {
+      // Its expressions alter arm poses. The runtime expression manager does
+      // not reliably reset additive values, so return every pose control to
+      // neutral before applying an explicitly requested action.
+      for (const parameterId of XUANBAO_MIKU_ACTION_PARAMETER_IDS) {
+        coreModel.setParameterValueById?.(parameterId, 0);
+      }
     }
     // Expressions use additive values and this model's idle update runs from
     // PIXI's shared ticker. Write after that update so hand poses stay active.
@@ -733,7 +745,10 @@
         fear: 0.2, disgust: -0.14, contempt: 0.1, neutral: 0,
       };
       yawTarget = offsets[emotion] || 0;
-      if (!interactionMotion.name) chooseExpression(emotion);
+      if (!interactionMotion.name
+        && selectedModelId !== '玄宝 Miku/miku/miku.model3.json') {
+        chooseExpression(emotion);
+      }
     },
   });
 
