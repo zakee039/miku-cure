@@ -216,8 +216,13 @@
   function applyLive2DOverrides() {
     const coreModel = live2dModel?.internalModel?.coreModel;
     if (!coreModel) return;
-    for (const parameterId of watermarkParameterIds) {
-      coreModel.setParameterValueById?.(parameterId, hideModelWatermark ? 0 : 1);
+    // Param137 belongs to this model's combined gesture setup, not to an
+    // isolated watermark layer. Hiding it every frame collapses its right arm.
+    // Its actual watermark artwork has dedicated parts, handled below.
+    if (selectedModelId !== '玄宝 Miku/miku/miku.model3.json') {
+      for (const parameterId of watermarkParameterIds) {
+        coreModel.setParameterValueById?.(parameterId, hideModelWatermark ? 0 : 1);
+      }
     }
     for (const partId of watermarkPartIds) {
       coreModel.setPartOpacityById?.(partId, hideModelWatermark ? 0 : 1);
@@ -531,15 +536,10 @@
       : [];
     manifest.url = entry.url;
     manifest.FileReferences = manifest.FileReferences || {};
-    // The supplied Scene1 animation continuously drives this model's prop and
-    // arm parameters, which is suitable for VTube Studio but collapses an arm
-    // in a renderer without its tracking inputs. Keep its original neutral pose.
-    if (entry.id !== '玄宝 Miku/miku/miku.model3.json') {
-      manifest.FileReferences.Motions = {
-        ...(manifest.FileReferences.Motions || {}),
-        ...(motions.length ? { Idle: motions.map((motion) => ({ File: motion.url })) } : {}),
-      };
-    }
+    manifest.FileReferences.Motions = {
+      ...(manifest.FileReferences.Motions || {}),
+      ...(motions.length ? { Idle: motions.map((motion) => ({ File: motion.url })) } : {}),
+    };
     manifest.FileReferences.Expressions = expressions.map((expression) => ({
       Name: expression.name.replace(/\.exp3\.json$/i, ''),
       File: expression.url,
