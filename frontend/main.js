@@ -24,6 +24,14 @@ const {
   validateLauncherHeartbeat,
 } = require('./security');
 
+// A launcher can close its inherited console before Electron finishes loading.
+// Treat the resulting broken output pipe as a logging failure, not an app crash.
+for (const output of [process.stdout, process.stderr]) {
+  output?.on?.('error', (error) => {
+    if (error?.code === 'EPIPE') return;
+  });
+}
+
 // Set application name for Task Manager and Taskbar
 app.name = 'Miku Cure';
 // Note: Electron API is setAppUserModelId (lowercase d), not setAppUserModelID
@@ -562,6 +570,7 @@ function createWindow() {
     const message = details && details.message !== undefined ? details.message : '';
     const line = details && details.lineNumber !== undefined ? details.lineNumber : 0;
     const source = path.basename(String(details && details.sourceId || 'renderer'));
+    if (process.stdout?.destroyed || process.stdout?.writable === false) return;
     console.log('[Renderer:' + level + '] ' + message + ' (' + source + ':' + line + ')');
   });
   mainWindow.webContents.on('did-fail-load', (_event, code, description) => {
