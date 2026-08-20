@@ -42,7 +42,16 @@
   const LIVE2D_FRAMING = Object.freeze({
     // This model has substantial transparent space on its left side. Preserve
     // a general bounds-based frame while compensating for that source layout.
-    '玄宝 Miku/miku/miku.model3.json': { horizontalOffset: -0.24 },
+    '玄宝 Miku/miku/miku.model3.json': {
+      horizontalOffset: -0.24,
+      verticalFill: 1.85,
+      hitAreas: [
+        { name: 'head', left: 0.31, right: 0.69, top: 0.06, bottom: 0.27 },
+        { name: 'face', left: 0.32, right: 0.68, top: 0.27, bottom: 0.52 },
+        { name: 'arm', left: 0.05, right: 0.38, top: 0.48, bottom: 0.98 },
+        { name: 'arm', left: 0.62, right: 0.95, top: 0.48, bottom: 0.98 },
+      ],
+    },
   });
 
   const WATERMARK_EXPRESSION_NAME = /(?:watermark|水印)/i;
@@ -174,6 +183,12 @@
       || localY < bounds.y || localY > bounds.y + bounds.height) return '';
     const x = (localX - bounds.x) / bounds.width;
     const y = (localY - bounds.y) / bounds.height;
+    const hitAreas = live2dFraming.hitAreas;
+    if (Array.isArray(hitAreas)) {
+      return hitAreas.find((area) => (
+        x >= area.left && x <= area.right && y >= area.top && y <= area.bottom
+      ))?.name || '';
+    }
     if (y < 0.38 && x > 0.27 && x < 0.73) return y < 0.25 ? 'head' : 'face';
     if (y > 0.3 && y < 0.78 && (x < 0.22 || x > 0.78)) return 'arm';
     return '';
@@ -428,9 +443,12 @@
     const bounds = live2dModel.getLocalBounds();
     const naturalWidth = Math.max(bounds.width, 1);
     const naturalHeight = Math.max(bounds.height, 1);
-    // Frame roughly the top half of a standing model. Bounds are used instead
-    // of the model canvas so asymmetric hair/accessories stay visually centered.
-    const baseScale = Math.max(width / naturalWidth * 1.1, height / naturalHeight * 2.35);
+    // Frame the upper body. Bounds are used instead of the model canvas so
+    // asymmetric hair/accessories stay visually centered.
+    const baseScale = Math.max(
+      width / naturalWidth * 1.1,
+      height / naturalHeight * (live2dFraming.verticalFill || 2.35),
+    );
     const view = currentView();
     live2dModel.scale.set(baseScale * view.scale);
     live2dModel.pivot.set(0, 0);
