@@ -3,8 +3,10 @@
   const layer = document.getElementById('miku-3d-layer');
   const displayArea = document.getElementById('miku-display');
   const status = document.getElementById('miku-3d-status');
-  const feedToggle = document.getElementById('character-feed-toggle');
+  const homeButtons = document.getElementById('character-home-buttons');
+  const editButtons = document.getElementById('character-edit-buttons');
   const adjustToggle = document.getElementById('character-adjust-toggle');
+  const watermarkToggle = document.getElementById('character-watermark-toggle');
   const adjustDismiss = document.getElementById('character-adjust-dismiss');
   const ipcRenderer = window.miku?.ipc;
 
@@ -36,55 +38,9 @@
   let hideModelWatermark = ipcRenderer?.sendSync?.('get-config', 'miku-hide-model-watermark') !== false;
   let watermarkParameterIds = new Set();
   let watermarkPartIds = [];
-  let watermarkTickerBound = false;
+  let activeModelConfig = {};
   let activeActionParameters = {};
   let characterViews = readCharacterViews();
-
-  const LIVE2D_FRAMING = Object.freeze({
-    // This model has substantial transparent space on its left side. Preserve
-    // a general bounds-based frame while compensating for that source layout.
-    '玄宝 Miku/miku/miku.model3.json': {
-      horizontalOffset: -0.24,
-      // Preserve enough of the torso to keep the hands visible. This model's
-      // hand poses extend substantially farther than its idle silhouette.
-      verticalFill: 1.5,
-      actionVerticalFill: { heart: 1.25, feed: 1.32, sing: 1.36 },
-      hitAreas: [
-        { name: 'head', left: 0.31, right: 0.69, top: 0.06, bottom: 0.27 },
-        { name: 'face', left: 0.32, right: 0.68, top: 0.27, bottom: 0.52 },
-        { name: 'arm', left: 0.05, right: 0.38, top: 0.48, bottom: 0.98 },
-        { name: 'arm', left: 0.62, right: 0.95, top: 0.48, bottom: 0.98 },
-      ],
-    },
-  });
-
-  const WATERMARK_EXPRESSION_NAME = /(?:watermark|水印)/i;
-  const LIVE2D_WATERMARK_PARTS = Object.freeze([
-    'Part18', 'Part17', 'Part77', 'PartSketch0',
-  ]);
-  const LIVE2D_ACTIONS = Object.freeze({
-    feed: { expression: /^(?:葱|大葱)$/i, duration: 3200 },
-    sing: { expression: /^唱歌$/i, duration: 0 },
-    heart: { expression: /^比心$/i, duration: 3600 },
-    lean: { expression: /^前倾$/i, duration: 2200 },
-    size: { expression: /^(?:QQ人|大小变)$/i, duration: 2600 },
-    dizzy: { expression: /^(?:圈圈|晕晕)$/i, duration: 3600 },
-    cry: { expression: /^(?:哭哭|哭泣|QQ人)$/i, duration: 5200 },
-    blush: { expression: /^脸红$/i, duration: 2600 },
-  });
-  const XUANBAO_MIKU_ACTION_PARAMETERS = Object.freeze({
-    feed: { Param133: 1, Param134: 0, Param135: 0 },
-    sing: { Param133: 0, Param134: 1, Param135: 0 },
-    heart: { Param133: 0, Param134: 0, Param135: 1 },
-    lean: { Param132: 1 },
-    blush: { Param130: 1 },
-    dizzy: { Param125: 1 },
-    cry: { Param131: 1, Param136: 1 },
-  });
-  const XUANBAO_MIKU_ACTION_PARAMETER_IDS = Object.freeze([
-    'Param125', 'Param130', 'Param131', 'Param132', 'Param133',
-    'Param134', 'Param135', 'Param136',
-  ]);
 
   function setStatus(message) {
     if (status) status.textContent = message;
@@ -133,6 +89,49 @@
     displayArea?.classList.toggle('is-adjusting-model', adjustmentEnabled);
   }
 
+  function updateWatermarkButton() {
+    if (!watermarkToggle) return;
+    const label = hideModelWatermark ? '恢复水印' : '去除水印';
+    const description = hideModelWatermark ? '恢复模型水印' : '去除模型水印';
+    watermarkToggle.textContent = label;
+    watermarkToggle.title = description;
+    watermarkToggle.setAttribute('aria-label', description);
+    watermarkToggle.setAttribute('aria-pressed', String(hideModelWatermark));
+  }
+
+  function renderConfiguredButtons(container, definitions) {
+    if (!container) return;
+    container.replaceChildren();
+    for (const definition of definitions || []) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'character-model-button';
+      button.textContent = definition.icon;
+      button.title = definition.title;
+      button.setAttribute('aria-label', definition.title);
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (definition.function === 'action' && performAction(definition.action)) noteInteraction();
+      });
+      container.appendChild(button);
+    }
+  }
+
+  function renderModelButtons() {
+    renderConfiguredButtons(homeButtons, activeModelConfig.homeButtons);
+    renderConfiguredButtons(editButtons, activeModelConfig.editButtons);
+  }
+
+  function setWatermarkHidden(hidden, persist = false) {
+    hideModelWatermark = Boolean(hidden);
+    updateWatermarkButton();
+    applyLive2DOverrides();
+    if (!persist) return;
+    ipcRenderer?.send?.('set-config', { key: 'miku-hide-model-watermark', val: hideModelWatermark });
+    ipcRenderer?.send?.('watermark-visibility-changed', hideModelWatermark);
+  }
+
   function setAdjustment(enabled) {
     adjustmentEnabled = Boolean(enabled);
     dragState = undefined;
@@ -165,29 +164,32 @@
     activeActionParameters = {};
     live2dModel?.internalModel?.motionManager?.expressionManager?.resetExpression?.();
     fitLive2D();
-    if (musicActionActive) performAction('sing');
+    const musicAction = activeModelConfig.interactions?.music;
+    if (musicActionActive && musicAction) performAction(musicAction);
   }
 
-  function findExpression(pattern) {
+  function findExpression(name) {
     return live2dModel?.internalModel?.motionManager?.expressionManager?.definitions?.find((expression) => (
-      pattern.test(expression.Name || '')
+      expression.Name === name
     ));
   }
 
   function performAction(action) {
     if (!live2dModel || !action || requestedMode !== '3d') return false;
-    const definition = LIVE2D_ACTIONS[action];
+    const definition = activeModelConfig.actions?.[action];
     if (!definition) return false;
     const expression = findExpression(definition.expression);
-    if (!expression) return false;
+    const parameters = definition.parameters || {};
+    if (!expression && !Object.keys(parameters).length) return false;
     window.clearTimeout(actionTimer);
     interactionMotion = { name: action, until: definition.duration ? Date.now() + definition.duration : 0 };
-    activeActionParameters = selectedModelId === '玄宝 Miku/miku/miku.model3.json'
-      ? XUANBAO_MIKU_ACTION_PARAMETERS[action] || {}
-      : {};
-    live2dModel.expression(expression.Name).catch((error) => {
-      console.warn(`Live2D action failed: ${action}`, error);
-    });
+    activeActionParameters = parameters;
+    applyLive2DOverrides();
+    if (expression) {
+      live2dModel.expression(expression.Name).catch((error) => {
+        console.warn(`Live2D action failed: ${action}`, error);
+      });
+    }
     fitLive2D();
     if (definition.duration) {
       actionTimer = window.setTimeout(resetAction, definition.duration);
@@ -220,34 +222,27 @@
   function applyLive2DOverrides() {
     const coreModel = live2dModel?.internalModel?.coreModel;
     if (!coreModel) return;
-    // Param137 belongs to this model's combined gesture setup, not to an
-    // isolated watermark layer. Hiding it every frame collapses its right arm.
-    // Its actual watermark artwork has dedicated parts, handled below.
-    if (selectedModelId !== '玄宝 Miku/miku/miku.model3.json') {
-      for (const parameterId of watermarkParameterIds) {
-        coreModel.setParameterValueById?.(parameterId, hideModelWatermark ? 0 : 1);
-      }
+    for (const parameterId of activeModelConfig.resetParameters || []) {
+      coreModel.setParameterValueById?.(parameterId, 0);
     }
-    for (const partId of watermarkPartIds) {
-      coreModel.setPartOpacityById?.(partId, hideModelWatermark ? 0 : 1);
-    }
-    if (selectedModelId === '玄宝 Miku/miku/miku.model3.json') {
-      // Its expressions alter arm poses. The runtime expression manager does
-      // not reliably reset additive values, so return every pose control to
-      // neutral before applying an explicitly requested action.
-      for (const parameterId of XUANBAO_MIKU_ACTION_PARAMETER_IDS) {
-        coreModel.setParameterValueById?.(parameterId, 0);
-      }
-    }
-    // Expressions use additive values and this model's idle update runs from
-    // PIXI's shared ticker. Write after that update so hand poses stay active.
     for (const [parameterId, value] of Object.entries(activeActionParameters)) {
       coreModel.setParameterValueById?.(parameterId, value);
+    }
+    const watermark = activeModelConfig.watermark;
+    if (!watermark) return;
+    const value = hideModelWatermark ? watermark.hiddenValue : watermark.visibleValue;
+    for (const parameterId of watermarkParameterIds) {
+      coreModel.setParameterValueById?.(parameterId, value);
+    }
+    for (const partId of watermarkPartIds) {
+      coreModel.setPartOpacityById?.(partId, value);
     }
   }
 
   function trackCircle(event) {
     if (!live2dModel || adjustmentEnabled || requestedMode !== '3d') return;
+    const circleAction = activeModelConfig.interactions?.circle;
+    if (!circleAction) return;
     const rect = canvas.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
@@ -266,7 +261,7 @@
     circleTrace.lastAngle = angle;
     circleTrace.lastTime = now;
     if (circleTrace.turns >= 3 && now - circleTrace.startedAt <= 7000) {
-      performAction('dizzy');
+      performAction(circleAction);
       noteInteraction();
       circleTrace = undefined;
     }
@@ -283,7 +278,7 @@
   window.setInterval(() => {
     if (!live2dModel || requestedMode !== '3d' || adjustmentEnabled || idleReactionShown) return;
     if (Date.now() - lastInteractionAt >= 30 * 60 * 1000) {
-      idleReactionShown = performAction('cry');
+      idleReactionShown = performAction(activeModelConfig.interactions?.idle);
     }
   }, 60 * 1000);
 
@@ -387,7 +382,7 @@
       const pointer = interactionPointer;
       interactionPointer = undefined;
       if (pointer.moved || adjustmentEnabled) return;
-      const action = { head: 'lean', face: 'blush', arm: 'heart' }[
+      const action = activeModelConfig.interactions?.hitActions?.[
         getLive2DHitArea(event.clientX, event.clientY)
       ];
       if (!action) return;
@@ -401,7 +396,7 @@
       event.preventDefault();
       event.stopPropagation();
       window.clearTimeout(clickTimer);
-      if (performAction('size')) noteInteraction();
+      if (performAction(activeModelConfig.interactions?.doubleClick)) noteInteraction();
     });
     view.addEventListener('wheel', (event) => {
       if (!adjustmentEnabled) return;
@@ -435,10 +430,6 @@
     frameId = undefined;
     if (resizeHandler) window.removeEventListener('resize', resizeHandler);
     resizeHandler = undefined;
-    if (watermarkTickerBound) {
-      window.PIXI?.Ticker?.shared?.remove(applyLive2DOverrides);
-      watermarkTickerBound = false;
-    }
     const oldRenderer = renderer;
     const oldLive2dApp = live2dApp;
     renderer = scene = camera = mmdModel = mmdFrame = mmdKeyLight = live2dApp = live2dModel = undefined;
@@ -446,9 +437,13 @@
     watermarkPartIds = [];
     loading = false;
     resetAction();
+    activeModelConfig = {};
+    homeButtons?.replaceChildren();
+    editButtons?.replaceChildren();
     circleTrace = undefined;
     layer?.classList.remove('has-model');
     layer?.classList.remove('has-live2d');
+    layer?.classList.remove('has-watermark-control');
     try {
       oldRenderer?.dispose();
       oldRenderer?.forceContextLoss?.();
@@ -478,9 +473,17 @@
 
   function fitLive2D() {
     if (!live2dApp || !live2dModel || !canvas || live2dApp.renderer.destroyed) return;
-    const width = Math.max(canvas.clientWidth, 1);
-    const height = Math.max(canvas.clientHeight, 1);
+    // Pixi's autoDensity assigns an inline pixel size to the canvas. Reading
+    // clientWidth back from that canvas after the Electron window is enlarged
+    // keeps the old backing-store width and creates a sharp clipping edge.
+    // The layer is the source of truth because it always tracks the viewport.
+    const width = Math.max(layer?.clientWidth || canvas.clientWidth, 1);
+    const height = Math.max(layer?.clientHeight || canvas.clientHeight, 1);
     live2dApp.renderer.resize(width, height);
+    // renderer.resize() writes fixed inline dimensions again; keep layout
+    // responsive while retaining the correctly sized high-DPI backing store.
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
     const bounds = live2dModel.getLocalBounds();
     const naturalWidth = Math.max(bounds.width, 1);
     const naturalHeight = Math.max(bounds.height, 1);
@@ -508,26 +511,6 @@
     live2dModel.y = height * (0.06 + view.y) - renderedBounds.y;
   }
 
-  async function getWatermarkParameterIds(expressions) {
-    const watermarkExpressions = expressions.filter((expression) => (
-      WATERMARK_EXPRESSION_NAME.test(expression.name)
-    ));
-    const definitions = await Promise.all(watermarkExpressions.map(async (expression) => {
-      try {
-        const response = await fetch(expression.url);
-        return response.ok ? response.json() : null;
-      } catch (error) {
-        console.warn('Unable to read Live2D watermark expression:', error);
-        return null;
-      }
-    }));
-    return new Set(definitions.flatMap((definition) => (
-      Array.isArray(definition?.Parameters)
-        ? definition.Parameters.map((parameter) => parameter?.Id).filter((id) => typeof id === 'string')
-        : []
-    )));
-  }
-
   async function loadLive2D(entry, token, view) {
     if (!window.PIXI?.live2d?.Live2DModel || !window.Live2DCubismCore) {
       throw new Error('Live2D runtime dependency was not loaded');
@@ -540,12 +523,6 @@
 
     const motions = Array.isArray(entry.motions) ? entry.motions : [];
     const expressions = Array.isArray(entry.expressions) ? entry.expressions : [];
-    const nextWatermarkParameterIds = await getWatermarkParameterIds(expressions);
-    if (token !== generation || requestedMode !== '3d') return;
-    watermarkParameterIds = nextWatermarkParameterIds;
-    watermarkPartIds = entry.id === '玄宝 Miku/miku/miku.model3.json'
-      ? LIVE2D_WATERMARK_PARTS
-      : [];
     manifest.url = entry.url;
     manifest.FileReferences = manifest.FileReferences || {};
     manifest.FileReferences.Motions = {
@@ -557,10 +534,12 @@
       File: expression.url,
     }));
 
+    const viewportWidth = Math.max(layer?.clientWidth || view.clientWidth || 1, 1);
+    const viewportHeight = Math.max(layer?.clientHeight || view.clientHeight || 1, 1);
     const app = new window.PIXI.Application({
       view,
-      width: Math.max(view.clientWidth || 1, 1),
-      height: Math.max(view.clientHeight || 1, 1),
+      width: viewportWidth,
+      height: viewportHeight,
       backgroundColor: 0xffffff,
       backgroundAlpha: 1,
       antialias: true,
@@ -578,23 +557,33 @@
     }
     live2dApp = app;
     live2dModel = model;
-    live2dFraming = LIVE2D_FRAMING[entry.id] || { horizontalOffset: 0 };
+    live2dFraming = activeModelConfig.framing || { horizontalOffset: 0 };
+    watermarkParameterIds = new Set(activeModelConfig.watermark?.parameterIds || []);
+    watermarkPartIds = activeModelConfig.watermark?.partIds || [];
     app.stage.addChild(model);
-    // Respect model-provided watermark controls without modifying source assets.
-    // Reapply after every model update so motions cannot re-enable the setting.
-    window.PIXI.Ticker.shared.add(
-      applyLive2DOverrides,
-      undefined,
-      window.PIXI.UPDATE_PRIORITY?.LOW ?? -25,
-    );
-    watermarkTickerBound = true;
+    // Expressions and motions write their values immediately before this call.
+    // Apply declarative model overrides at that boundary so Cubism includes
+    // them while recalculating drawable opacity for the current frame.
+    const coreModel = model.internalModel?.coreModel;
+    if (typeof coreModel?.update === 'function') {
+      const updateCoreModel = coreModel.update.bind(coreModel);
+      coreModel.update = (...args) => {
+        applyLive2DOverrides();
+        return updateCoreModel(...args);
+      };
+    }
     applyLive2DOverrides();
     fitLive2D();
     resizeHandler = fitLive2D;
     window.addEventListener('resize', resizeHandler, { passive: true });
     layer?.classList.add('has-model');
     layer?.classList.add('has-live2d');
-    if (musicActionActive) performAction('sing');
+    layer?.classList.toggle('has-watermark-control', Boolean(
+      watermarkParameterIds.size || watermarkPartIds.length,
+    ));
+    renderModelButtons();
+    const musicAction = activeModelConfig.interactions?.music;
+    if (musicActionActive && musicAction) performAction(musicAction);
     console.info('[Character] Live2D model loaded:', entry.name);
   }
 
@@ -664,6 +653,7 @@
         setStatus('未找到模型。请放入 miku/models/<模型名>/。');
         return;
       }
+      activeModelConfig = entry.config?.version === 1 ? entry.config : {};
       const view = createRenderCanvas();
       if (entry.type === 'live2d') await loadLive2D(entry, token, view);
       else await loadMmd(entry, token, view);
@@ -682,17 +672,9 @@
       available.resetExpression();
       return;
     }
-    const candidates = {
-      happy: ['比心', '葱'],
-      sadness: ['圈圈'],
-      surprise: ['QQ'],
-      anger: ['葱'],
-      fear: ['脸红'],
-      disgust: ['前倾'],
-      contempt: ['唱歌'],
-    }[emotion] || [];
+    const configuredExpression = activeModelConfig.emotions?.[emotion];
     const name = available.definitions?.find((expression) => (
-      candidates.some((candidate) => expression.Name?.includes(candidate))
+      expression.Name === configuredExpression
     ))?.Name;
     if (name) live2dModel.expression(name).catch((error) => console.warn('Live2D expression failed:', error));
   }
@@ -726,17 +708,22 @@
       if (performed) noteInteraction();
       return performed;
     },
+    hasMusicAction() {
+      const musicAction = activeModelConfig.interactions?.music;
+      return Boolean(musicAction && activeModelConfig.actions?.[musicAction]);
+    },
     setMusicPlaying(active) {
       musicActionActive = Boolean(active);
+      const musicAction = activeModelConfig.interactions?.music;
       if (musicActionActive) {
         noteInteraction();
-        performAction('sing');
-      } else if (interactionMotion.name === 'sing') {
+        performAction(musicAction);
+      } else if (interactionMotion.name === musicAction) {
         resetAction();
       }
     },
     reactToNegativeReport() {
-      if (performAction('cry')) noteInteraction();
+      if (performAction(activeModelConfig.interactions?.negativeReport)) noteInteraction();
     },
     noteInteraction,
     setEmotion(emotion) {
@@ -745,23 +732,19 @@
         fear: 0.2, disgust: -0.14, contempt: 0.1, neutral: 0,
       };
       yawTarget = offsets[emotion] || 0;
-      if (!interactionMotion.name
-        && selectedModelId !== '玄宝 Miku/miku/miku.model3.json') {
-        chooseExpression(emotion);
-      }
+      if (!interactionMotion.name) chooseExpression(emotion);
     },
-  });
-
-  feedToggle?.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    window.Miku3D.performAction('feed');
   });
 
   adjustToggle?.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     window.Miku3D.toggleAdjustment();
+  });
+  watermarkToggle?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setWatermarkHidden(!hideModelWatermark, true);
   });
   adjustDismiss?.addEventListener('click', (event) => {
     event.preventDefault();
@@ -770,8 +753,8 @@
   });
   ipcRenderer?.on?.('watermark-visibility-changed', (_event, hidden) => {
     if (typeof hidden !== 'boolean') return;
-    hideModelWatermark = hidden;
-    applyLive2DOverrides();
+    setWatermarkHidden(hidden);
   });
   updateAdjustmentButton();
+  updateWatermarkButton();
 })();

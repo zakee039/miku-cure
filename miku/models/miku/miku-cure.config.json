@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "framing": {
+    "horizontalOffset": -0.24,
+    "verticalFill": 1.5,
+    "actionVerticalFill": {
+      "heart": 1.25,
+      "feed": 1.32,
+      "sing": 1.36
+    },
+    "hitAreas": [
+      { "name": "head", "left": 0.31, "right": 0.69, "top": 0.06, "bottom": 0.27 },
+      { "name": "face", "left": 0.32, "right": 0.68, "top": 0.27, "bottom": 0.52 },
+      { "name": "arm", "left": 0.05, "right": 0.38, "top": 0.48, "bottom": 0.98 },
+      { "name": "arm", "left": 0.62, "right": 0.95, "top": 0.48, "bottom": 0.98 }
+    ]
+  },
+  "watermark": {
+    "parameterIds": [],
+    "partIds": ["Part18", "Part17"],
+    "hiddenValue": 0,
+    "visibleValue": 1
+  },
+  "resetParameters": [
+    "Param125", "Param130", "Param131", "Param132", "Param133", "Param134", "Param135", "Param136"
+  ],
+  "actions": {
+    "feed": {
+      "expression": "葱",
+      "duration": 3200,
+      "parameters": { "Param133": 1, "Param134": 0, "Param135": 0 }
+    },
+    "sing": {
+      "expression": "唱歌",
+      "duration": 0,
+      "parameters": { "Param133": 0, "Param134": 1, "Param135": 0 }
+    },
+    "heart": {
+      "expression": "比心",
+      "duration": 3600,
+      "parameters": { "Param133": 0, "Param134": 0, "Param135": 1 }
+    },
+    "size": {
+      "expression": "QQ人",
+      "duration": 2600,
+      "parameters": { "Param131": 1, "Param136": 1 }
+    },
+    "cry": {
+      "expression": "QQ人",
+      "duration": 5200,
+      "parameters": { "Param131": 1, "Param136": 1 }
+    },
+    "lean": { "expression": "前倾", "duration": 2200, "parameters": { "Param132": 1 } },
+    "dizzy": { "expression": "圈圈", "duration": 3600, "parameters": { "Param125": 1 } },
+    "blush": { "expression": "脸红", "duration": 2600, "parameters": { "Param130": 1 } }
+  },
+  "homeButtons": [
+    { "id": "feed", "function": "action", "action": "feed", "icon": "🍭", "title": "投喂大葱", "order": 0 }
+  ],
+  "editButtons": [],
+  "interactions": {
+    "hitActions": { "head": "lean", "face": "blush", "arm": "heart" },
+    "doubleClick": "size",
+    "circle": "dizzy",
+    "idle": "cry",
+    "negativeReport": "cry",
+    "music": "sing"
+  },
+  "emotions": {}
+}

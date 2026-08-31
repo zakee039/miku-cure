@@ -118,7 +118,7 @@ assert.strictEqual(validateLauncherHeartbeat(
   { token, launchSession: 'session-1', now, maxAgeMs: 5000 },
 ), null);
 
-const rendererFiles = ['renderer.js', 'settings_renderer.js', 'chat_renderer.js', 'report_renderer.js'];
+const rendererFiles = ['renderer.js', '3d_runtime.js', 'settings_renderer.js', 'chat_renderer.js', 'report_renderer.js'];
 for (const filename of rendererFiles) {
   const source = fs.readFileSync(path.join(__dirname, filename), 'utf8');
   assert.ok(!/\brequire\s*\(/.test(source), `${filename} must not use require()`);
@@ -168,7 +168,13 @@ assert.match(packageJson.scripts['package:portable'], /\.\.\/package_portable\.p
 assert.strictEqual(packageJson.devDependencies['electron-builder'], undefined);
 assert.strictEqual(packageJson.build, undefined);
 assert.ok(Array.isArray(packageJson.files) && packageJson.files.length > 0);
+assert.ok(packageJson.files.includes('model_config.js'));
 assert.ok(!packageJson.files.some((entry) => entry.includes('*') || entry.includes('.env') || entry.includes('.electron-cache')));
+assert.match(
+  fs.readFileSync(path.join(__dirname, '..', 'package_portable.ps1'), 'utf8'),
+  /"main\.js", "model_config\.js", "preload\.js"/,
+  'the portable package must include the model configuration reader',
+);
 assert.ok(!fs.existsSync(path.join(__dirname, '.env')));
 assert.ok(!fs.existsSync(path.join(__dirname, '.electron-cache')));
 console.log('frontend security tests passed');

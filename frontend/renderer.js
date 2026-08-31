@@ -68,6 +68,25 @@ function playSingStateVideo(filename) {
   mikuVideo.play().catch(err => console.error('Sing-state video error:', err));
 }
 
+function updateSingVisual(playing) {
+  const useLive2DVisual = is3dMode() && window.Miku3D?.hasMusicAction?.() === true;
+  if (useLive2DVisual) {
+    mikuVideo.pause();
+    mikuVideo.style.display = 'none';
+    mikuImage.style.display = 'none';
+    miku3dLayer?.classList.add('active');
+    window.Miku3D?.setMode('3d');
+    window.Miku3D?.setMusicPlaying(Boolean(playing));
+    return;
+  }
+
+  // Models without their own sing expression temporarily use the same
+  // looped sing/pause videos as media mode, without changing the saved mode.
+  miku3dLayer?.classList.remove('active');
+  window.Miku3D?.setMusicPlaying(false);
+  playSingStateVideo(playing ? SING_VIDEO : PAUSE_VIDEO);
+}
+
 // DOM Elements
 const mikuVideo = document.getElementById('miku-video');
 const mikuImage = document.getElementById('miku-image');
@@ -367,14 +386,7 @@ async function startSingPlaylist(index = 0) {
   playerPlay.textContent = "||";
   updateStatus(t('status.singing'), "#bf73ff");
   
-  if (is3dMode()) {
-    miku3dLayer?.classList.add('active');
-    window.Miku3D?.setMode('3d');
-    window.Miku3D?.setMusicPlaying(true);
-  } else {
-    // Show MIKU-SING looping video while music is playing.
-    playSingStateVideo(SING_VIDEO);
-  }
+  updateSingVisual(true);
   
   currentAudio.onended = () => {
     // Auto next song
@@ -399,6 +411,9 @@ function stopSingOrDance() {
   document.getElementById('viewport-header').classList.remove('header-folded');
   updateStatus(t('status.idle'), "#39c5bb");
   if (is3dMode()) {
+    mikuVideo.pause();
+    mikuVideo.style.display = 'none';
+    mikuImage.style.display = 'none';
     miku3dLayer?.classList.add('active');
     window.Miku3D?.setMode('3d');
   } else {
@@ -461,15 +476,13 @@ playerPlay.addEventListener('click', () => {
     isPlayingSing = false;
     playerPlay.textContent = "▶";
     updateStatus(t('status.paused'), "#bf73ff");
-    window.Miku3D?.setMusicPlaying(false);
-    if (!is3dMode()) playSingStateVideo(PAUSE_VIDEO);
+    updateSingVisual(false);
   } else {
     currentAudio.play().catch(e => console.error(e));
     isPlayingSing = true;
     playerPlay.textContent = "||";
     updateStatus(t('status.singing'), "#bf73ff");
-    window.Miku3D?.setMusicPlaying(true);
-    if (!is3dMode()) playSingStateVideo(SING_VIDEO);
+    updateSingVisual(true);
   }
 });
 

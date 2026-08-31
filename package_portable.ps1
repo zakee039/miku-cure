@@ -394,7 +394,7 @@ Write-Step "Copying frontend + Electron..."
 $feSrc = Join-Path $ProjectRoot "frontend"
 $feDst = Join-Path $PkgRoot "frontend"
 $feNames = @(
-    "main.js", "preload.js", "paths.js", "security.js", "renderer.js", "3d_runtime.js", "i18n.js", "style.css",
+    "main.js", "model_config.js", "preload.js", "paths.js", "security.js", "renderer.js", "3d_runtime.js", "i18n.js", "style.css",
     "index.html", "settings.html", "settings_renderer.js", "chat.html", "chat_renderer.js",
     "report.html", "report_renderer.js", "report.css", "package.json"
 )

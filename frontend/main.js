@@ -23,6 +23,7 @@ const {
   validateBackendDescriptor,
   validateLauncherHeartbeat,
 } = require('./security');
+const { loadModelConfig } = require('./model_config');
 
 // A launcher can close its inherited console before Electron finishes loading.
 // Treat the resulting broken output pipe as a logging failure, not an app crash.
@@ -36,7 +37,7 @@ for (const output of [process.stdout, process.stderr]) {
 app.name = 'Miku Cure';
 // Note: Electron API is setAppUserModelId (lowercase d), not setAppUserModelID
 if (process.platform === 'win32' && typeof app.setAppUserModelId === 'function') {
-  app.setAppUserModelId('MikuCure.DesktopPet.1.2.0');
+  app.setAppUserModelId('MikuCure.DesktopPet.1.2.1');
 }
 
 /** Unified app icon: miku face from miku/icon.* */
@@ -811,8 +812,12 @@ ipcMain.on('character-model-changed', (event, modelId) => {
 });
 
 ipcMain.on('watermark-visibility-changed', (event, hidden) => {
-  if (!isWindowSender(event, settingsWindow) || typeof hidden !== 'boolean') return;
-  if (mainWindow) mainWindow.webContents.send('watermark-visibility-changed', hidden);
+  if (typeof hidden !== 'boolean') return;
+  if (isWindowSender(event, settingsWindow)) {
+    if (mainWindow) mainWindow.webContents.send('watermark-visibility-changed', hidden);
+  } else if (isWindowSender(event, mainWindow)) {
+    if (settingsWindow) settingsWindow.webContents.send('watermark-visibility-changed', hidden);
+  }
 });
 
 // Independent Report Window
@@ -1397,6 +1402,7 @@ function listCharacterModels() {
         name: entry.folder,
         type: entry.type,
         url: pathToFileURL(entry.file).href,
+        config: loadModelConfig(modelDirectory),
         motions: relatedFiles.filter((file) => /\.motion3\.json$/i.test(file.name)),
         expressions: relatedFiles.filter((file) => /\.exp3\.json$/i.test(file.name)),
       };

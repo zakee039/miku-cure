@@ -28,13 +28,17 @@ app.isPackaged = false;
 app.setAppUserModelId = () => {};
 app.disableHardwareAcceleration = () => {};
 app.getPath = () => __dirname;
-app.getVersion = () => '1.2.0';
+app.getVersion = () => '1.2.1';
 app.whenReady = () => Promise.resolve();
 app.quit = () => { quitCalls += 1; };
 
 class MockWebContents extends EventEmitter {
+  constructor() {
+    super();
+    this.sent = [];
+  }
   setWindowOpenHandler(handler) { this.windowOpenHandler = handler; }
-  send() {}
+  send(...args) { this.sent.push(args); }
   setZoomFactor() {}
   isLoading() { return false; }
 }
@@ -182,6 +186,24 @@ setImmediate(() => {
   const settingsWindow = windows[1];
   settingsWindow.emit('ready-to-show');
   assert.strictEqual(petWindow.isAlwaysOnTop(), false, 'settings must stay above the pet');
+  ipcMain.emit('watermark-visibility-changed', mainSender, true);
+  assert.ok(
+    settingsWindow.webContents.sent.some(([channel, hidden]) => (
+      channel === 'watermark-visibility-changed' && hidden === true
+    )),
+    'the edit-mode watermark button must update an open settings window',
+  );
+  ipcMain.emit(
+    'watermark-visibility-changed',
+    { sender: settingsWindow.webContents },
+    false,
+  );
+  assert.ok(
+    petWindow.webContents.sent.some(([channel, hidden]) => (
+      channel === 'watermark-visibility-changed' && hidden === false
+    )),
+    'the settings watermark checkbox must update the pet window',
+  );
   settingsWindow.hide();
   assert.strictEqual(petWindow.isAlwaysOnTop(), true);
 

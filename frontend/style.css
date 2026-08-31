@@ -101,8 +101,11 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 .miku-3d-layer canvas {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  /* Pixi autoDensity writes fixed pixel dimensions as inline styles.  The
+     pet window is resized after startup, so those stale values must never
+     override the viewport and clip the model at the old canvas boundary. */
+  width: 100% !important;
+  height: 100% !important;
   display: block;
   z-index: 0;
 }
@@ -153,14 +156,23 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   display: flex;
 }
 
-.character-feed-toggle {
+.character-home-buttons,
+.character-edit-buttons {
   position: absolute;
   left: 8px;
   bottom: 28px;
   z-index: 2;
+  display: none;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 0;
+  -webkit-app-region: no-drag;
+}
+
+.character-model-button {
   width: 20px;
   height: 20px;
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   border: none;
@@ -175,11 +187,15 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   -webkit-app-region: no-drag;
 }
 
-.miku-3d-layer.has-live2d .character-feed-toggle {
+.miku-3d-layer.has-live2d:not(.is-adjusting) .character-home-buttons:not(:empty) {
   display: flex;
 }
 
-.character-feed-toggle:hover {
+.miku-3d-layer.has-live2d.is-adjusting .character-edit-buttons:not(:empty) {
+  display: flex;
+}
+
+.character-model-button:hover {
   color: var(--text-primary);
   transform: scale(1.2);
 }
@@ -188,7 +204,8 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   display: none;
 }
 
-.miku-3d-layer.is-adjusting .character-feed-toggle {
+.miku-3d-layer.is-adjusting .character-home-buttons,
+.miku-3d-layer:not(.is-adjusting) .character-edit-buttons {
   display: none;
 }
 
@@ -202,6 +219,46 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 
 .miku-3d-layer.is-adjusting canvas {
   cursor: move;
+}
+
+.character-watermark-toggle {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 102;
+  min-width: 56px;
+  height: 24px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px solid rgba(57, 197, 187, 0.45);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #287f78;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(28, 65, 76, 0.14);
+  transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.miku-3d-layer.is-adjusting.has-watermark-control .character-watermark-toggle {
+  display: flex;
+}
+
+.character-watermark-toggle:hover {
+  color: #176a64;
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.character-watermark-toggle[aria-pressed="true"] {
+  border-color: rgba(107, 122, 141, 0.3);
+  color: #59697b;
+  background: rgba(242, 246, 248, 0.92);
 }
 
 .character-adjust-help {

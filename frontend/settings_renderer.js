@@ -178,6 +178,9 @@ document.addEventListener('DOMContentLoaded', () => {
     ipcRenderer.send('set-config', { key: 'miku-hide-model-watermark', val: hidden });
     ipcRenderer.send('watermark-visibility-changed', hidden);
   });
+  ipcRenderer.on('watermark-visibility-changed', (_event, hidden) => {
+    if (typeof hidden === 'boolean') hideModelWatermark.checked = hidden;
+  });
   const savedCharacterModel = ipcRenderer.sendSync('get-config', 'miku-character-model') || '';
   ipcRenderer.invoke('list-character-models').then((models) => {
     const list = Array.isArray(models) ? models : [];

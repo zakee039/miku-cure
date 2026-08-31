@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "framing": {
+    "horizontalOffset": 0,
+    "verticalFill": 2.35,
+    "hitAreas": [
+      { "name": "head", "left": 0.31, "right": 0.69, "top": 0.06, "bottom": 0.27 },
+      { "name": "face", "left": 0.32, "right": 0.68, "top": 0.27, "bottom": 0.52 }
+    ]
+  },
+  "watermark": {
+    "parameterIds": [],
+    "partIds": ["Part18", "Part17"],
+    "hiddenValue": 0,
+    "visibleValue": 1
+  },
+  "resetParameters": ["Param125", "Param130", "Param131", "Param132", "Param133", "Param136"],
+  "actions": {
+    "lean": { "expression": "前倾", "duration": 2200, "parameters": { "Param132": 1 } },
+    "dizzy": { "expression": "圈圈", "duration": 3600, "parameters": { "Param125": 1 } },
+    "cry": { "expression": "哭", "duration": 5200, "parameters": { "Param133": 1 } },
+    "blush": { "expression": "脸红", "duration": 2600, "parameters": { "Param130": 1 } }
+  },
+  "homeButtons": [
+    { "id": "blush", "function": "action", "action": "blush", "icon": "😳", "title": "脸红", "order": 0 }
+  ],
+  "editButtons": [],
+  "interactions": {
+    "hitActions": { "head": "lean", "face": "blush" },
+    "circle": "dizzy",
+    "idle": "cry",
+    "negativeReport": "cry"
+  },
+  "emotions": {
+    "sadness": "圈圈",
+    "fear": "脸红",
+    "disgust": "前倾"
+  }
+}

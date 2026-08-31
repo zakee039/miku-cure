@@ -91,6 +91,8 @@ desktop.ini
 
 # Character model assets are user-provided and may have separate redistribution terms.
 miku/models/**
+!miku/models/**/
+!miku/models/**/miku-cure.config.json
 
 # Local release and verification scratch directories
 .release-staging-*/

@@ -269,6 +269,12 @@ class MainWindow(QMainWindow):
         self._env_worker: _EnvWorker | None = None
         self._stop_worker: _StopWorker | None = None
         self._exit_after_stop = False
+        self._restart_after_stop = False
+        self._restart_spinner_frames = ("◐", "◓", "◑", "◒")
+        self._restart_spinner_index = 0
+        self._restart_spinner_timer = QTimer(self)
+        self._restart_spinner_timer.setInterval(120)
+        self._restart_spinner_timer.timeout.connect(self._advance_restart_spinner)
         self._last_env_report = None
 
         central = QWidget()
@@ -400,9 +406,14 @@ class MainWindow(QMainWindow):
         self.btn_toggle_pet.setObjectName("secondary")
         self.btn_toggle_pet.clicked.connect(self._toggle_pet_btn)
         self.btn_toggle_pet.setEnabled(False)
+        self.btn_restart = QPushButton("")
+        self.btn_restart.setObjectName("secondary")
+        self.btn_restart.clicked.connect(self._restart_all)
+        self.btn_restart.setEnabled(False)
         btns.addWidget(self.btn_start)
         btns.addWidget(self.btn_stop)
         btns.addWidget(self.btn_toggle_pet)
+        btns.addWidget(self.btn_restart)
         btns.addStretch(1)
         lay.addLayout(btns)
 
@@ -628,6 +639,10 @@ class MainWindow(QMainWindow):
         self.act_exit.setText(texts["exit_all"])
         self.btn_start.setText(texts["start_all"])
         self.btn_stop.setText(texts["stop_services"])
+        if self._restart_spinner_timer.isActive():
+            self._update_restart_button_text()
+        else:
+            self.btn_restart.setText(texts["restart_services"])
         if self._last_env_report is not None:
             self._show_env_report(self._last_env_report)
         self._refresh_status()
@@ -714,6 +729,7 @@ class MainWindow(QMainWindow):
     def shutdown_workers(self) -> None:
         """Cancel background waits before Qt destroys their QThread objects."""
         self._timer.stop()
+        self._restart_spinner_timer.stop()
         self.services.cancel_startup()
 
         env_worker = self._env_worker
@@ -729,17 +745,22 @@ class MainWindow(QMainWindow):
                 worker.wait(2500)
         self.services.stop_heartbeat()
 
-    def _start_all(self) -> None:
+    def _start_all(self, *, restarting: bool = False) -> None:
         if self._start_worker and self._start_worker.isRunning():
+            if restarting:
+                self._stop_restart_spinner()
             return
         if self.services.any_running():
+            if restarting:
+                self._stop_restart_spinner()
             return
         center = self.frameGeometry().center()
         self.services.set_launch_display_point(center.x(), center.y())
         self._linked_stop_done = False
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(False)
-        self._show_progress("正在启动…", 5)
+        self.btn_restart.setEnabled(False)
+        self._show_progress("正在重新启动…" if restarting else "正在启动…", 5)
         worker = _StartWorker(self.services)
         self._start_worker = worker
 
@@ -750,7 +771,12 @@ class MainWindow(QMainWindow):
             self._hide_progress()
             self._refresh_status()
             texts = self._texts()
-            self.statusBar().showMessage(texts["start_done"] if ok else texts["start_failed"])
+            if restarting:
+                self._stop_restart_spinner()
+                message = texts["restart_done"] if ok else texts["restart_failed"]
+            else:
+                message = texts["start_done"] if ok else texts["start_failed"]
+            self.statusBar().showMessage(message)
 
         worker.progress.connect(on_prog)
         worker.finished_ok.connect(on_done)
@@ -761,14 +787,61 @@ class MainWindow(QMainWindow):
     def _stop_all(self) -> None:
         self._begin_stop(exit_after=False)
 
-    def _begin_stop(self, *, exit_after: bool, backend_only: bool = False) -> None:
+    def _update_restart_button_text(self) -> None:
+        frame = self._restart_spinner_frames[self._restart_spinner_index]
+        self.btn_restart.setText(f"{frame}  {self._texts()['restarting_button']}")
+
+    def _advance_restart_spinner(self) -> None:
+        self._restart_spinner_index = (
+            self._restart_spinner_index + 1
+        ) % len(self._restart_spinner_frames)
+        self._update_restart_button_text()
+
+    def _start_restart_spinner(self) -> None:
+        self._restart_spinner_index = 0
+        self._update_restart_button_text()
+        self._restart_spinner_timer.start()
+
+    def _stop_restart_spinner(self) -> None:
+        self._restart_spinner_timer.stop()
+        self.btn_restart.setText(self._texts()["restart_services"])
+
+    def _restart_all(self) -> None:
+        if not self.services.any_running():
+            return
+        if (self._start_worker and self._start_worker.isRunning()) or (
+            self._stop_worker and self._stop_worker.isRunning()
+        ):
+            return
+        center = self.frameGeometry().center()
+        self.services.set_launch_display_point(center.x(), center.y())
+        self._start_restart_spinner()
+        self._show_progress("正在重启服务…", 5)
+        self._begin_stop(exit_after=False, restart_after=True)
+
+    def _begin_stop(
+        self,
+        *,
+        exit_after: bool,
+        backend_only: bool = False,
+        restart_after: bool = False,
+    ) -> None:
         if self._stop_worker and self._stop_worker.isRunning():
             self._exit_after_stop = self._exit_after_stop or exit_after
+            if exit_after or not restart_after:
+                self._restart_after_stop = False
+                self._stop_restart_spinner()
             return
         self._exit_after_stop = exit_after
+        self._restart_after_stop = restart_after and not exit_after and not backend_only
+        if not self._restart_after_stop:
+            self._stop_restart_spinner()
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(False)
-        self.statusBar().showMessage(self._texts()["stopping"])
+        self.btn_restart.setEnabled(False)
+        self.statusBar().showMessage(
+            self._texts()["restarting" if self._restart_after_stop else "stopping"]
+        )
         worker = _StopWorker(self.services, backend_only=backend_only)
         self._stop_worker = worker
 
@@ -777,10 +850,17 @@ class MainWindow(QMainWindow):
                 self._linked_stop_done = False
             self._refresh_status()
             if self._exit_after_stop:
+                self._restart_after_stop = False
+                self._stop_restart_spinner()
                 self._force_quit = True
                 self.tray.hide()
                 QApplication.instance().quit()
+            elif self._restart_after_stop:
+                self._restart_after_stop = False
+                self.statusBar().showMessage(self._texts()["restarting"])
+                QTimer.singleShot(0, lambda: self._start_all(restarting=True))
             else:
+                self._stop_restart_spinner()
                 self.statusBar().showMessage(self._texts()["stopped"])
 
         worker.finished_ok.connect(on_done)
@@ -847,6 +927,7 @@ class MainWindow(QMainWindow):
         running = self.services.any_running()
         self.btn_start.setEnabled(not running and not busy)
         self.btn_stop.setEnabled((running or starting) and not env_busy and not stopping)
+        self.btn_restart.setEnabled(running and not busy)
         pet_on = self.services.electron_running()
         self.btn_toggle_pet.setEnabled(pet_on and not busy)
         if pet_on:

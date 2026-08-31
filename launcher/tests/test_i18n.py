@@ -40,6 +40,10 @@ class LauncherTranslationTests(unittest.TestCase):
         message = "正在启动后端服务…"
         self.assertEqual(translate_progress("zh", message), message)
         self.assertEqual(translate_progress("en", message), "Starting backend service…")
+        self.assertEqual(
+            translate_progress("en", "正在重启服务…"),
+            "Restarting services…",
+        )
 
         report = SimpleNamespace(
             items=[

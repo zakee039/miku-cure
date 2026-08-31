@@ -1,7 +1,7 @@
 {
   "name": "miku-cure",
   "productName": "Miku Cure",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "An interactive desktop pet with emotion recognition",
   "main": "main.js",
   "author": "momo325",
@@ -9,7 +9,7 @@
   "scripts": {
     "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
-    "test": "node test_security.js && node test_preload.js && node test_main_smoke.js",
+    "test": "node test_security.js && node test_preload.js && node test_model_config.js && node test_3d_controls.js && node test_main_smoke.js",
     "package:portable": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ../package_portable.ps1"
   },
   "devDependencies": {
@@ -25,6 +25,7 @@
     "i18n.js",
     "index.html",
     "main.js",
+    "model_config.js",
     "paths.js",
     "preload.js",
     "renderer.js",
