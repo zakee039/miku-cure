@@ -36,6 +36,22 @@
   "interactions": {
     "hitActions": { "face": "cry" }
   },
+  "tracking": {
+    "mouse": {
+      "supported": true,
+      "eyeStrength": 0.75,
+      "headStrength": 0.45,
+      "bodyStrength": 0.15
+    },
+    "face": {
+      "supported": true,
+      "profile": "mediapipe-face-landmarker-v1",
+      "parameters": {
+        "headX": { "id": "ParamAngleX", "scale": 30, "offset": 0, "min": -30, "max": 30 },
+        "eyeX": { "id": "ParamEyeBallX", "scale": -1, "offset": 0, "min": -1, "max": 1 }
+      }
+    }
+  },
   "emotions": {
     "sadness": "哭"
   }
@@ -54,5 +70,9 @@
 - `interactions`：可配置点击区域、双击、画圈、闲置、负面报告和音乐播放时触发的动作。
 - `interactions.music`：模型有唱歌表情时指向对应动作；未声明时，播放歌曲会自动使用表情包模式的唱歌/暂停视频。
 - `emotions`：识别情绪到模型表情文件名的精确映射。
+- `tracking.mouse`：声明模型是否支持鼠标追踪，以及眼睛、头部和身体的相对强度。
+- `tracking.face`：声明面捕能力和语义参数到 Cubism 参数的安全线性映射。每个绑定必须提供 `id / scale / offset / min / max`；运行时只接受白名单中的面部语义键，不执行脚本表达式。
+
+追踪参数每帧按以下顺序写入：`resetParameters → Tracking → action parameters → watermark`。动作只有在 `actions.*.parameters` 中显式列出的参数才会临时覆盖追踪值。
 
 配置文件最大 64 KiB。未知字段、任意脚本函数、无效标识符、越界数值和引用不存在动作的按钮都会被忽略。

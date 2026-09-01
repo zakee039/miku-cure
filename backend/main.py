@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(__file__))
 
 from camera import Camera
 from detector import EmotionDetector
+from face_tracker import FaceTracker
 from logger import EmotionLogger
 from llm import MikuLLM
 from websocket_server import MikuWebSocketServer
@@ -66,7 +67,13 @@ focus_start_time = 0
 focus_paused_seconds = 0.0
 _pause_started_at = None
 current_lang = 'zh'
-camera_monitor_on_start = os.environ.get('MIKU_CAMERA_MONITOR_ON_START', '1') != '0'
+emotion_recognition_enabled = os.environ.get(
+    'MIKU_EMOTION_RECOGNITION_ENABLED',
+    os.environ.get('MIKU_CAMERA_MONITOR_ON_START', '1'),
+) != '0'
+emotion_recognition_generation = 0
+face_tracking_enabled = False
+face_tracking_generation = 0
 launcher_heartbeat_expected = os.environ.get('MIKU_EXPECT_LAUNCHER_HEARTBEAT') == '1'
 LAUNCHER_HEARTBEAT_TIMEOUT_SEC = 6.0
 LAUNCHER_HEARTBEAT_POLL_SEC = 0.5
@@ -86,15 +93,23 @@ logger = EmotionLogger(flush_interval_sec=15.0)
 llm = MikuLLM()
 ws_server = MikuWebSocketServer()
 camera.set_status_callback(
-    lambda connected, error=None: ws_server.send_to_all(
-        _camera_status_payload(error=error, connected=connected)
-    )
+    lambda connected, error=None: _handle_camera_status(connected, error)
 )
+face_tracker = None
+_camera_state_lock = threading.RLock()
+_camera_suspensions = set()
+_camera_retry_at = 0.0
+_camera_retry_delay = 1.0
+_emotion_last_sequence = 0
+_face_last_sequence = 0
+_face_healthy = False
+_face_status_reason = 'disabled'
 
 # Workers: general IO/LLM + single-slot inference (latest-frame only)
 executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix='miku-worker')
 infer_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='miku-infer')
 _infer_future = None  # type: Future | None
+_infer_generation = 0
 _infer_seq = 0
 _shutdown_event = threading.Event()
 _lora_training_lock = threading.Lock()
@@ -110,10 +125,108 @@ def _camera_status_payload(error=None, connected=None):
     payload = {
         'type': 'camera_status',
         'connected': bool(camera.is_running if connected is None else connected),
+        'emotionEnabled': bool(emotion_recognition_enabled),
+        'faceEnabled': bool(face_tracking_enabled),
+        'suspended': bool(_camera_suspensions),
     }
     if error:
         payload['error'] = error
     return payload
+
+
+def _tracking_status_payload(reason=None):
+    return {
+        'type': 'tracking_status',
+        'faceEnabled': bool(face_tracking_enabled),
+        'faceHealthy': bool(_face_healthy),
+        'reason': reason or _face_status_reason,
+    }
+
+
+def _handle_camera_status(connected, error=None):
+    global _camera_retry_at, _camera_retry_delay, _face_healthy, _face_status_reason
+    if connected:
+        _camera_retry_delay = 1.0
+        _camera_retry_at = 0.0
+    elif error and (emotion_recognition_enabled or face_tracking_enabled):
+        _camera_retry_at = time.monotonic() + _camera_retry_delay
+        _camera_retry_delay = min(30.0, _camera_retry_delay * 2.0)
+        if face_tracking_enabled:
+            _face_healthy = False
+            _face_status_reason = error
+            ws_server.send_to_all(_tracking_status_payload())
+    ws_server.send_to_all(_camera_status_payload(error=error, connected=connected))
+
+
+def _ensure_face_tracker():
+    global face_tracker, _face_status_reason
+    if face_tracker is None:
+        face_tracker = FaceTracker(
+            os.path.join(os.path.dirname(__file__), 'models', 'face_landmarker.task'),
+            result_callback=_handle_face_tracking_result,
+        )
+    if face_tracker.start():
+        return True
+    _face_status_reason = face_tracker.last_error or 'face_landmarker_init_failed'
+    return False
+
+
+def _handle_face_tracking_result(payload):
+    global _face_healthy, _face_status_reason
+    if (
+        not face_tracking_enabled
+        or _shutdown_event.is_set()
+        or payload.get('generation') != face_tracking_generation
+    ):
+        return
+    previous = (_face_healthy, _face_status_reason)
+    _face_healthy = bool(payload.get('valid'))
+    _face_status_reason = 'ok' if _face_healthy else str(payload.get('reason', 'face_lost'))
+    ws_server.send_to_all(payload)
+    if previous != (_face_healthy, _face_status_reason):
+        ws_server.send_to_all(_tracking_status_payload())
+
+
+def _reconcile_camera(force=False):
+    global _camera_retry_at
+    with _camera_state_lock:
+        face_consumer_active = bool(
+            face_tracking_enabled
+            and face_tracker is not None
+            and face_tracker.is_ready
+        )
+        should_run = bool(
+            (emotion_recognition_enabled or face_consumer_active)
+            and not _camera_suspensions
+            and not _shutdown_event.is_set()
+        )
+        camera.set_target_fps(20 if face_consumer_active else 2)
+        if not should_run:
+            if camera.is_running:
+                camera.stop()
+            return True
+        if camera.is_running:
+            return True
+        if not force and time.monotonic() < _camera_retry_at:
+            return False
+        if camera.start():
+            return True
+        _camera_retry_at = time.monotonic() + max(1.0, _camera_retry_delay)
+        return False
+
+
+def _set_camera_suspended(reason, suspended):
+    reason = str(reason or '')[:64]
+    if reason not in {'training_capture', 'lora_training'}:
+        return False
+    with _camera_state_lock:
+        if suspended:
+            _camera_suspensions.add(reason)
+        else:
+            _camera_suspensions.discard(reason)
+    _reconcile_camera(force=not suspended)
+    ws_server.send_to_all(_camera_status_payload())
+    return True
 
 
 def _submit_worker(fn):
@@ -181,7 +294,9 @@ def handle_frontend_message(data):
     global focus_active, focus_duration_mins, focus_start_time, focus_paused
     global focus_paused_seconds, _pause_started_at
     global emotion_window, care_popup_triggered, care_cooldown_until
-    global current_lang
+    global current_lang, emotion_recognition_enabled, emotion_recognition_generation
+    global face_tracking_enabled, face_tracking_generation
+    global _face_healthy, _face_status_reason
 
     if not isinstance(data, dict):
         _send_error('protocol_error', 'invalid_message')
@@ -197,6 +312,57 @@ def handle_frontend_message(data):
 
     if msg_type == 'get_camera_status':
         ws_server.send_to_all(_camera_status_payload())
+        return
+
+    if msg_type == 'get_tracking_status':
+        ws_server.send_to_all(_tracking_status_payload())
+        return
+
+    if msg_type == 'set_emotion_recognition':
+        requested_state = data.get('enabled')
+        if not isinstance(requested_state, bool):
+            _send_error('emotion_recognition_status', 'invalid_emotion_recognition_state')
+            return
+        emotion_recognition_enabled = requested_state
+        emotion_recognition_generation += 1
+        if not requested_state:
+            emotion_window.clear()
+        _reconcile_camera(force=requested_state)
+        ws_server.send_to_all({
+            'type': 'emotion_recognition_status',
+            'enabled': bool(emotion_recognition_enabled),
+            'cameraConnected': bool(camera.is_running),
+        })
+        ws_server.send_to_all(_camera_status_payload())
+        return
+
+    if msg_type == 'set_face_tracking':
+        requested_state = data.get('enabled')
+        if not isinstance(requested_state, bool):
+            _send_error('tracking_status', 'invalid_face_tracking_state')
+            return
+        face_tracking_enabled = requested_state
+        raw_generation = data.get('generation', 0)
+        if isinstance(raw_generation, int) and not isinstance(raw_generation, bool) and 0 <= raw_generation <= 2 ** 31 - 1:
+            face_tracking_generation = raw_generation
+        if requested_state:
+            _face_healthy = False
+            _face_status_reason = 'initializing'
+            _ensure_face_tracker()
+        else:
+            _face_healthy = False
+            _face_status_reason = 'disabled'
+        _reconcile_camera(force=requested_state)
+        ws_server.send_to_all(_tracking_status_payload())
+        ws_server.send_to_all(_camera_status_payload())
+        return
+
+    if msg_type == 'set_camera_suspended':
+        requested_state = data.get('suspended')
+        if not isinstance(requested_state, bool) or not _set_camera_suspended(
+            data.get('reason'), requested_state
+        ):
+            _send_error('camera_status', 'invalid_camera_suspension')
         return
 
     if msg_type == 'start_focus':
@@ -351,17 +517,16 @@ def handle_frontend_message(data):
             payload['success'] = False
             ws_server.send_to_all(payload)
             return
-        error = None
-        if requested_state:
-            if camera.start():
-                print("Backend: Camera started by user.")
-            else:
-                error = 'camera_open_failed'
-                print("Backend: Camera could not be started by user.")
-        else:
-            camera.stop()
-            print("Backend: Camera stopped by user.")
-        ws_server.send_to_all(_camera_status_payload(error))
+        emotion_recognition_enabled = requested_state
+        emotion_recognition_generation += 1
+        _reconcile_camera(force=requested_state)
+        ws_server.send_to_all({
+            'type': 'emotion_recognition_status',
+            'enabled': bool(emotion_recognition_enabled),
+            'cameraConnected': bool(camera.is_running),
+            'deprecatedProtocol': True,
+        })
+        ws_server.send_to_all(_camera_status_payload())
 
     elif msg_type == 'chat_request':
         text = data.get('text', '')
@@ -447,9 +612,7 @@ def handle_frontend_message(data):
             _lora_training_lock.release()
             _send_error('training_complete', 'training_storage_unavailable')
             return
-        camera_was_connected = camera.is_running
-        if camera_was_connected:
-            camera.stop()
+        _set_camera_suspended('lora_training', True)
 
         def _train_lora():
             import base64
@@ -585,8 +748,8 @@ def handle_frontend_message(data):
                         detector.model.eval()
                 except Exception:
                     pass
-                if camera_was_connected and not _shutdown_event.is_set():
-                    camera.start()
+                if not _shutdown_event.is_set():
+                    _set_camera_suspended('lora_training', False)
                 _lora_training_lock.release()
 
         # Run on infer executor so it doesn't race with detect_emotion
@@ -594,8 +757,8 @@ def handle_frontend_message(data):
             infer_executor.submit(_train_lora)
         except RuntimeError:
             _lora_training_lock.release()
-            if camera_was_connected and not _shutdown_event.is_set():
-                camera.start()
+            if not _shutdown_event.is_set():
+                _set_camera_suspended('lora_training', False)
             _send_error('training_complete', 'backend_stopping')
 
 
@@ -653,38 +816,59 @@ def _handle_emotion_result(emotion, confidence, bbox):
 
 def main_loop():
     """
-    Main tick ~2Hz (0.5s).
-    Inference runs async; results are applied as soon as ready (not delayed one full tick).
-    Intermediate frames dropped if still busy (backpressure-safe).
+    Shared camera dispatch loop. Face tracking consumes new frames at capture rate,
+    while emotion inference remains capped near 2Hz. Both keep independent cursors.
     """
-    global is_running, _infer_future, _infer_seq
+    global is_running, _infer_future, _infer_seq, _infer_generation
+    global _emotion_last_sequence, _face_last_sequence
 
-    tick = 0.5  # seconds — matches target_fps≈2
-    print("Backend: Main detection loop running (async inference, ~2Hz).")
+    tick = 0.02
+    next_emotion_at = 0.0
+    print("Backend: Shared camera dispatch loop running.")
     while is_running:
-        start_time = time.time()
+        start_time = time.monotonic()
+        _reconcile_camera()
 
         # Collect finished inference immediately
         if _infer_future is not None and _infer_future.done():
             try:
                 emotion, confidence, bbox = _infer_future.result()
-                _handle_emotion_result(emotion, confidence, bbox)
+                if emotion_recognition_enabled and _infer_generation == emotion_recognition_generation:
+                    _handle_emotion_result(emotion, confidence, bbox)
             except Exception as e:
                 print(f"Backend: Inference error: {e}")
             _infer_future = None
 
-        # Submit new work only when idle — drop intermediate frames
-        if _infer_future is None:
-            frame = camera.get_frame()
-            if frame is not None:
-                _infer_seq += 1
+        if face_tracking_enabled and camera.is_running and face_tracker is not None and face_tracker.is_ready:
+            snapshot = camera.get_snapshot(_face_last_sequence)
+            if snapshot is not None:
+                _face_last_sequence = snapshot.sequence
+                if not face_tracker.submit(snapshot, face_tracking_generation):
+                    _handle_face_tracking_result({
+                        'type': 'face_tracking',
+                        'valid': False,
+                        'reason': face_tracker.last_error or 'face_landmarker_inference_failed',
+                        'sequence': snapshot.sequence,
+                        'capturedAt': snapshot.captured_at,
+                        'generation': int(face_tracking_generation),
+                    })
 
-                def _run_detect(f=frame):
+        # Submit emotion work only when idle and due; intermediate frames are dropped.
+        now = time.monotonic()
+        if emotion_recognition_enabled and _infer_future is None and now >= next_emotion_at:
+            snapshot = camera.get_snapshot(_emotion_last_sequence)
+            if snapshot is not None:
+                _emotion_last_sequence = snapshot.sequence
+                _infer_seq += 1
+                _infer_generation = emotion_recognition_generation
+                next_emotion_at = now + 0.5
+
+                def _run_detect(f=snapshot.image):
                     return detector.detect_emotion(f)
 
                 _infer_future = infer_executor.submit(_run_detect)
 
-        elapsed = time.time() - start_time
+        elapsed = time.monotonic() - start_time
         sleep_dur = tick - elapsed
         if sleep_dur > 0:
             time.sleep(sleep_dur)
@@ -811,11 +995,13 @@ if __name__ == '__main__':
     def on_client_connect():
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.2.1",
+            "version": "1.2.2",
             "model": detector.model_type,
             "model_ready": detector.is_ready,
             "detector_error": detector.last_error,
             "camera_enabled": bool(camera.is_running),
+            "emotion_recognition_enabled": bool(emotion_recognition_enabled),
+            "face_tracking_enabled": bool(face_tracking_enabled),
             "face_engine": (
                 "mp_tasks" if getattr(detector, "mp_tasks_face", None)
                 else ("mp_legacy" if detector.mp_face else "haar")
@@ -837,22 +1023,23 @@ if __name__ == '__main__':
         print("Hint: set MIKU_WS_PORT to a free port, or check Windows excluded ranges:")
         print("      netsh interface ipv4 show excludedportrange protocol=tcp")
 
-    if camera_monitor_on_start:
-        cam_ok = camera.start()
-        if not cam_ok:
-            print("Warning: Camera failed to open — backend continues (toggle_camera / mock still usable).")
-    else:
-        print("Backend: Camera emotion monitoring disabled at startup.")
+    cam_ok = _reconcile_camera(force=True)
+    if (emotion_recognition_enabled or face_tracking_enabled) and not cam_ok:
+        print("Warning: Camera failed to open — backend continues with camera consumers enabled.")
+    elif not emotion_recognition_enabled and not face_tracking_enabled:
+        print("Backend: Camera consumers disabled at startup.")
 
     time.sleep(0.3)
     if getattr(ws_server, 'bind_ok', False):
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.2.1",
+            "version": "1.2.2",
             "model": detector.model_type,
             "model_ready": detector.is_ready,
             "detector_error": detector.last_error,
             "camera_enabled": bool(camera.is_running),
+            "emotion_recognition_enabled": bool(emotion_recognition_enabled),
+            "face_tracking_enabled": bool(face_tracking_enabled),
         })
         print("Backend: Ready signal broadcast.")
     else:
@@ -928,6 +1115,8 @@ if __name__ == '__main__':
         except Exception:
             pass
         camera.stop(timeout=1.0)
+        if face_tracker is not None:
+            face_tracker.close()
         ws_server.stop(timeout=1.0)
         infer_executor.shutdown(wait=False, cancel_futures=True)
         executor.shutdown(wait=False, cancel_futures=True)

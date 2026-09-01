@@ -12,6 +12,7 @@ import json
 import asyncio
 import threading
 import subprocess
+import hashlib
 from types import SimpleNamespace
 from unittest import mock
 
@@ -280,6 +281,61 @@ class TestCameraHandoff(unittest.TestCase):
                 time.sleep(0.02)
         self.assertFalse(cam.is_running)
         self.assertIn((False, 'camera_read_failed'), statuses)
+
+    def test_snapshot_is_non_destructive_and_cursor_based(self):
+        from camera import Camera
+        import numpy as np
+
+        cam = Camera(device_index=0, target_fps=5)
+        fake = np.ones((24, 24, 3), dtype=np.uint8)
+        with cam.lock:
+            cam.frame = fake
+            cam.frame_sequence = 7
+            cam.frame_captured_at = 12.5
+        first = cam.get_snapshot(0)
+        second = cam.get_snapshot(0)
+        self.assertEqual(first.sequence, 7)
+        self.assertEqual(first.captured_at, 12.5)
+        self.assertIsNot(first.image, second.image)
+        self.assertIsNone(cam.get_snapshot(7))
+        self.assertEqual(cam.set_target_fps(120), 60.0)
+
+
+class TestFaceTracker(unittest.TestCase):
+    def test_semantic_blendshape_mapping(self):
+        import numpy as np
+        from face_tracker import FaceTracker
+
+        categories = [
+            SimpleNamespace(category_name='eyeBlinkLeft', score=0.25),
+            SimpleNamespace(category_name='eyeBlinkRight', score=0.5),
+            SimpleNamespace(category_name='mouthSmileLeft', score=0.8),
+            SimpleNamespace(category_name='mouthSmileRight', score=0.6),
+            SimpleNamespace(category_name='jawOpen', score=0.4),
+            SimpleNamespace(category_name='cheekPuff', score=0.3),
+        ]
+        result = SimpleNamespace(
+            face_landmarks=[[SimpleNamespace(x=0.5, y=0.5, z=0.0)]],
+            face_blendshapes=[categories],
+            facial_transformation_matrixes=[np.eye(4)],
+        )
+        payload = FaceTracker('unused')._to_semantic_payload(result)
+        self.assertTrue(payload['valid'])
+        self.assertAlmostEqual(payload['eyes']['leftOpen'], 0.75)
+        self.assertAlmostEqual(payload['eyes']['rightOpen'], 0.5)
+        self.assertAlmostEqual(payload['mouth']['open'], 0.4)
+        self.assertAlmostEqual(payload['mouth']['smile'], 0.7)
+        self.assertAlmostEqual(payload['cheekPuff'], 0.3)
+        self.assertNotIn('tongueOut', payload)
+
+    def test_packaged_model_hash(self):
+        path = os.path.join(os.path.dirname(__file__), 'models', 'face_landmarker.task')
+        with open(path, 'rb') as model_file:
+            digest = hashlib.sha256(model_file.read()).hexdigest()
+        self.assertEqual(
+            digest,
+            '64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff',
+        )
 
 
 class TestWebSocketPortConfig(unittest.TestCase):
@@ -589,6 +645,53 @@ class TestBackendProcessShutdown(unittest.TestCase):
                             break
                     self.assertIsNotNone(invalid_camera)
                     self.assertIs(invalid_camera['connected'], False)
+
+                    await ws.send(json.dumps({
+                        'type': 'set_emotion_recognition', 'enabled': False,
+                    }))
+                    emotion_status = None
+                    for _ in range(4):
+                        message = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
+                        if message.get('type') == 'emotion_recognition_status':
+                            emotion_status = message
+                            break
+                    self.assertIsNotNone(emotion_status)
+                    self.assertIs(emotion_status['enabled'], False)
+
+                    await ws.send(json.dumps({
+                        'type': 'set_face_tracking', 'enabled': 'true',
+                    }))
+                    invalid_face = None
+                    for _ in range(4):
+                        message = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
+                        if message.get('error') == 'invalid_face_tracking_state':
+                            invalid_face = message
+                            break
+                    self.assertIsNotNone(invalid_face)
+                    self.assertEqual(invalid_face.get('error'), 'invalid_face_tracking_state')
+
+                    await ws.send(json.dumps({
+                        'type': 'set_camera_suspended',
+                        'reason': 'training_capture',
+                        'suspended': True,
+                    }))
+                    suspended_status = None
+                    for _ in range(4):
+                        message = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
+                        if message.get('type') == 'camera_status' and message.get('suspended') is True:
+                            suspended_status = message
+                            break
+                    self.assertIsNotNone(suspended_status)
+
+                    await ws.send(json.dumps({
+                        'type': 'set_camera_suspended',
+                        'reason': 'training_capture',
+                        'suspended': False,
+                    }))
+                    for _ in range(4):
+                        message = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
+                        if message.get('type') == 'camera_status' and message.get('suspended') is False:
+                            break
 
                     await ws.send(json.dumps({'type': 'pause_focus', 'paused': 'false'}))
                     invalid_pause = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))

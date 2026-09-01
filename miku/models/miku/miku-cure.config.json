@@ -66,5 +66,40 @@
     "negativeReport": "cry",
     "music": "sing"
   },
+  "tracking": {
+    "mouse": {
+      "supported": true,
+      "eyeStrength": 0.75,
+      "headStrength": 0.45,
+      "bodyStrength": 0.15
+    },
+    "face": {
+      "supported": true,
+      "profile": "mediapipe-face-landmarker-v1",
+      "parameters": {
+        "headX": { "id": "ParamAngleX", "scale": 30, "offset": 0, "min": -30, "max": 30 },
+        "headY": { "id": "ParamAngleY", "scale": 30, "offset": 0, "min": -30, "max": 30 },
+        "headZ": { "id": "ParamAngleZ", "scale": 30, "offset": 0, "min": -30, "max": 30 },
+        "bodyX": { "id": "ParamBodyAngleX", "scale": 10, "offset": 0, "min": -10, "max": 10 },
+        "bodyY": { "id": "ParamBodyAngleY", "scale": 10, "offset": 0, "min": -10, "max": 10 },
+        "bodyZ": { "id": "ParamBodyAngleZ", "scale": 10, "offset": 0, "min": -10, "max": 10 },
+        "eyeX": { "id": "ParamEyeBallX", "scale": -1, "offset": 0, "min": -1, "max": 1 },
+        "eyeY": { "id": "ParamEyeBallY", "scale": 1, "offset": 0, "min": -1, "max": 1 },
+        "eyeLOpen": { "id": "ParamEyeLOpen", "scale": 1, "offset": 0, "min": 0, "max": 1 },
+        "eyeROpen": { "id": "ParamEyeROpen", "scale": 1, "offset": 0, "min": 0, "max": 1 },
+        "browLY": { "id": "ParamBrowLY", "scale": 1, "offset": 0, "min": -1, "max": 1 },
+        "browRY": { "id": "ParamBrowRY", "scale": 1, "offset": 0, "min": -1, "max": 1 },
+        "browLForm": { "id": "ParamBrowLForm", "scale": 1, "offset": 0, "min": -1, "max": 1 },
+        "browRForm": { "id": "ParamBrowRForm", "scale": 1, "offset": 0, "min": -1, "max": 1 },
+        "mouthOpen": { "id": "ParamMouthOpenY", "scale": 1, "offset": 0, "min": 0, "max": 1 },
+        "mouthForm": { "id": "ParamMouthForm", "scale": 2.5, "offset": 0, "min": -2.5, "max": 2.5 },
+        "mouthX": { "id": "Paramwaizui", "scale": 1, "offset": 0, "min": -1, "max": 1 },
+        "cheekPuff": { "id": "Paramgulian", "scale": 1, "offset": 0, "min": 0, "max": 1 },
+        "mouthPucker": { "id": "Paramguzui2", "scale": 1, "offset": 0, "min": -1, "max": 1 },
+        "mouthShrug": { "id": "ParamMouthShrug", "scale": 1, "offset": 0, "min": 0, "max": 1 },
+        "mouthRollLower": { "id": "mouthRollLower", "scale": 1, "offset": 0, "min": 0, "max": 1 }
+      }
+    }
+  },
   "emotions": {}
 }

@@ -73,7 +73,7 @@ def main() -> int:
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]
-                "MikuCure.Launcher.1.2.1"
+                "MikuCure.Launcher.1.2.2"
             )
         except Exception:
             pass

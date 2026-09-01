@@ -173,7 +173,8 @@ if (-not $SkipLauncherBuild) {
     try {
         Invoke-NativeChecked -FilePath $launcherPython -Arguments @('make_icon.py') -Description "Launcher icon generation"
         $pyInstallerArgs = @(
-            '-m', 'PyInstaller', '--noconfirm', '--clean', '--windowed', '--onefile',
+            (Join-Path $launcherDir 'build_pyinstaller.py'),
+            '--noconfirm', '--clean', '--windowed', '--onefile',
             '--name', 'MikuCure-Launcher', '--icon', (Join-Path $launcherDir 'icon.ico'),
             '--add-data', ((Join-Path $ProjectRoot 'miku\icon.png') + ';miku'),
             '--distpath', $launcherDist, '--workpath', $launcherWork,
@@ -387,6 +388,12 @@ if (-not (Test-Path (Join-Path $backendDst "models"))) {
 if (-not (Get-ChildItem -LiteralPath (Join-Path $backendDst "models") -Filter "*.pth" -File -ErrorAction SilentlyContinue | Select-Object -First 1)) {
     throw "No backend model weights (*.pth) were packaged"
 }
+$faceLandmarker = Join-Path $backendDst "models\face_landmarker.task"
+$faceLandmarkerHash = "64184E229B263107BC2B804C6625DB1341FF2BB731874B0BCC2FE6544E0BC9FF"
+if (-not (Test-Path -LiteralPath $faceLandmarker -PathType Leaf)) {
+    throw "Face Landmarker asset was not packaged"
+}
+Assert-Sha256 -Path $faceLandmarker -Expected $faceLandmarkerHash -Description "Face Landmarker asset"
 Write-Ok "Backend copied"
 
 # -- 4) Frontend + Electron --

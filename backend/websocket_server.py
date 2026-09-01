@@ -178,7 +178,7 @@ class MikuWebSocketServer:
             try:
                 await websocket.send(json.dumps({
                     "type": "backend_ready",
-                    "version": "1.2.1",
+                    "version": "1.2.2",
                 }))
             except Exception:
                 pass

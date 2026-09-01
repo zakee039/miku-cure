@@ -49,7 +49,7 @@ const SEND_CHANNELS = new Set([
   'llm-changed', 'model-changed', 'display-mode-changed', 'character-model-changed', 'watermark-visibility-changed', 'open-chat', 'open-report',
   'open-settings', 'request-chat-history', 'resize-window', 'run-train',
   'set-config', 'size-changed', 'start-backend', 'window-drag',
-  'renderer-ready',
+  'renderer-ready', 'mouse-tracking-subscription',
 ]);
 const INVOKE_CHANNELS = new Set([
   'api-fetch-models', 'apis-load', 'apis-save', 'backend-connection',
@@ -62,6 +62,7 @@ const RECEIVE_CHANNELS = new Set([
   'force-adjust-size', 'forward-chat-to-backend',
   'forward-history-request-to-backend', 'lang-changed', 'language-changed',
   'llm-changed', 'change-display-mode', 'change-character-model', 'watermark-visibility-changed', 'load-report', 'populate-chat-input',
+  'cursor-screen-point',
 ]);
 
 function assertAllowed(set, channel) {

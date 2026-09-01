@@ -28,7 +28,7 @@ if errorlevel 1 (
 )
 
 echo [3/4] Building a fresh isolated launcher...
-"%PYTHON%" -m PyInstaller --noconfirm --clean --windowed --onefile ^
+"%PYTHON%" build_pyinstaller.py --noconfirm --clean --windowed --onefile ^
   --name "MikuCure-Launcher" ^
   --icon "%~dp0icon.ico" ^
   --add-data "%ROOT%\miku\icon.png;miku" ^

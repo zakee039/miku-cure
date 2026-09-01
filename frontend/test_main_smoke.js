@@ -28,7 +28,7 @@ app.isPackaged = false;
 app.setAppUserModelId = () => {};
 app.disableHardwareAcceleration = () => {};
 app.getPath = () => __dirname;
-app.getVersion = () => '1.2.1';
+app.getVersion = () => '1.2.2';
 app.whenReady = () => Promise.resolve();
 app.quit = () => { quitCalls += 1; };
 

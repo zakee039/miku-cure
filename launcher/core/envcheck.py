@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+import hashlib
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -145,6 +146,21 @@ def run_env_check(
         "情绪模型权重",
         len(pth) > 0,
         f"{len(pth)} 个 .pth" if pth else f"缺少 {models}",
+        required=False,
+    ))
+
+    face_landmarker = models / "face_landmarker.task"
+    expected_face_hash = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+    face_hash = ""
+    if face_landmarker.is_file():
+        try:
+            face_hash = hashlib.sha256(face_landmarker.read_bytes()).hexdigest()
+        except OSError:
+            face_hash = ""
+    items.append(CheckItem(
+        "面捕模型资产",
+        face_hash == expected_face_hash,
+        str(face_landmarker) if face_hash == expected_face_hash else "缺失或摘要不匹配（鼠标追踪仍可用）",
         required=False,
     ))
 

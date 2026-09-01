@@ -175,6 +175,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(backend_env["MIKU_WS_TOKEN"], manager.ws_token)
         self.assertEqual(electron_env["MIKU_WS_TOKEN"], manager.ws_token)
         self.assertEqual(backend_env["MIKU_EXPECT_LAUNCHER_HEARTBEAT"], "1")
+        self.assertEqual(backend_env["MIKU_EMOTION_RECOGNITION_ENABLED"], "1")
         self.assertEqual(electron_env["MIKU_EXPECT_LAUNCHER_HEARTBEAT"], "0")
         self.assertEqual(electron_env["MIKU_LAUNCH_DISPLAY_X"], "-800")
         self.assertEqual(electron_env["MIKU_LAUNCH_DISPLAY_Y"], "600")

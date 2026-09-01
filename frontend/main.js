@@ -37,7 +37,7 @@ for (const output of [process.stdout, process.stderr]) {
 app.name = 'Miku Cure';
 // Note: Electron API is setAppUserModelId (lowercase d), not setAppUserModelID
 if (process.platform === 'win32' && typeof app.setAppUserModelId === 'function') {
-  app.setAppUserModelId('MikuCure.DesktopPet.1.2.1');
+  app.setAppUserModelId('MikuCure.DesktopPet.1.2.2');
 }
 
 /** Unified app icon: miku face from miku/icon.* */
@@ -66,6 +66,7 @@ const LAUNCH_SESSION = process.env.MIKU_LAUNCH_SESSION || '';
 const WS_TOKEN = process.env.MIKU_WS_TOKEN || crypto.randomBytes(32).toString('hex');
 
 let mainWindow;
+let cursorTrackingTimer;
 let settingsWindow = null;
 let reportWindow = null;
 let chatWindow = null;
@@ -597,6 +598,8 @@ function createWindow() {
   });
 
   mainWindow.on('closed', function () {
+    if (cursorTrackingTimer) clearInterval(cursorTrackingTimer);
+    cursorTrackingTimer = undefined;
     mainWindow = null;
     rendererReady = false;
     petLaunchWorkArea = null;
@@ -818,6 +821,24 @@ ipcMain.on('watermark-visibility-changed', (event, hidden) => {
   } else if (isWindowSender(event, mainWindow)) {
     if (settingsWindow) settingsWindow.webContents.send('watermark-visibility-changed', hidden);
   }
+});
+
+ipcMain.on('mouse-tracking-subscription', (event, enabled) => {
+  if (!isWindowSender(event, mainWindow) || typeof enabled !== 'boolean') return;
+  if (cursorTrackingTimer) {
+    clearInterval(cursorTrackingTimer);
+    cursorTrackingTimer = undefined;
+  }
+  if (!enabled) return;
+  cursorTrackingTimer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+    const point = screen.getCursorScreenPoint();
+    sendTo(mainWindow, 'cursor-screen-point', {
+      x: Number(point.x),
+      y: Number(point.y),
+      capturedAt: Date.now(),
+    });
+  }, 33);
 });
 
 // Independent Report Window
@@ -1091,6 +1112,8 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   quitting = true;
   stopLauncherHeartbeatMonitor();
+  if (cursorTrackingTimer) clearInterval(cursorTrackingTimer);
+  cursorTrackingTimer = undefined;
   killBackend();
 });
 app.on('will-quit', () => {
@@ -1116,7 +1139,8 @@ ipcMain.on('start-backend', (event) => {
 
   const backendDir = getBackendDir();
   const config = loadConfig();
-  const monitorOnStart = config['camera-monitor-on-start']
+  const monitorOnStart = config['miku-emotion-recognition-enabled']
+    ?? config['camera-monitor-on-start']
     ?? config['launcher-auto-monitor']
     ?? true;
   const py = resolvePython();
@@ -1136,6 +1160,7 @@ ipcMain.on('start-backend', (event) => {
       MIKU_USER_DIR: getUserDir(),
       MIKU_RESOURCES: path.dirname(backendDir),
       MIKU_CAMERA_MONITOR_ON_START: monitorOnStart ? '1' : '0',
+      MIKU_EMOTION_RECOGNITION_ENABLED: monitorOnStart ? '1' : '0',
       MIKU_WS_TOKEN: WS_TOKEN,
       MIKU_LAUNCH_SESSION: LAUNCH_SESSION,
       MIKU_EXPECT_LAUNCHER_HEARTBEAT: '0',
@@ -1199,6 +1224,7 @@ const CONFIG_KEYS = new Set([
   'miku-language', 'miku-master-name', 'miku-model-type', 'miku-sel-api',
   'miku-sel-model', 'miku-volume', 'miku-window-size', 'miku-display-mode',
   'miku-character-model', 'miku-character-view', 'miku-hide-model-watermark',
+  'miku-character-tracking', 'miku-emotion-recognition-enabled',
 ]);
 
 function sanitizeConfigValue(key, value) {
@@ -1207,6 +1233,7 @@ function sanitizeConfigValue(key, value) {
   if (key === 'miku-window-size') return ['small', 'medium', 'large'].includes(value) ? value : undefined;
   if (key === 'miku-display-mode') return ['media', '3d'].includes(value) ? value : undefined;
   if (key === 'miku-hide-model-watermark') return typeof value === 'boolean' ? value : undefined;
+  if (key === 'miku-emotion-recognition-enabled') return typeof value === 'boolean' ? value : undefined;
   if (key === 'miku-character-model') {
     return typeof value === 'string' && listCharacterModels().some((model) => model.id === value)
       ? value
@@ -1228,6 +1255,23 @@ function sanitizeConfigValue(key, value) {
       safeViews[modelId] = { x, y, scale };
     }
     return safeViews;
+  }
+  if (key === 'miku-character-tracking') {
+    if (!isPlainObject(value)) return undefined;
+    const knownModels = new Set(listCharacterModels().map((model) => model.id));
+    const entries = Object.entries(value);
+    if (entries.length > 50) return undefined;
+    const safeTracking = {};
+    for (const [modelId, state] of entries) {
+      if (!knownModels.has(modelId) || !isPlainObject(state)
+        || typeof state.mouseEnabled !== 'boolean'
+        || typeof state.faceEnabled !== 'boolean') return undefined;
+      safeTracking[modelId] = {
+        mouseEnabled: state.mouseEnabled,
+        faceEnabled: state.faceEnabled,
+      };
+    }
+    return safeTracking;
   }
   if (key === 'miku-volume') {
     return Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined;

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/version-v1.2.1-ff69b4?style=for-the-badge" />
+<img src="https://img.shields.io/badge/version-v1.2.2-ff69b4?style=for-the-badge" />
 <img src="https://img.shields.io/badge/platform-Windows-0078d7?style=for-the-badge&logo=windows" />
 <img src="https://img.shields.io/badge/Electron-31.7.7-47848f?style=for-the-badge&logo=electron" />
 <img src="https://img.shields.io/badge/PyTorch-2.6.0-ee4c2c?style=for-the-badge&logo=pytorch" />
@@ -30,7 +30,8 @@ Miku Cure 绝不仅仅是一个简单的桌面挂件。它结合了本地深度�
 - **自定义全局缩放**：支持 67%、100%、150% 三档全局 UI 缩放，适配不同分辨率的屏幕。
 
 ### 2. 👁️ 实时情绪感知与核心管线
-- **低功耗后台采集**：以 1 FPS 的频率在后台默默运行，结合 MediaPipe 与 Haar Cascade 提供极速准确的面部截取与滑动窗口防抖。
+- **共享摄像头服务**：表情识别约 2 Hz、Live2D 面捕约 15～20 Hz，两条链路共享同一个摄像头实例并独立启停；两者都关闭后立即释放摄像头。
+- **Live2D 面捕与鼠标追踪**：模型编辑中可分别控制鼠标追踪和完整面捕。面捕健康时优先驱动头、眼、眉、嘴等参数，丢脸后自动平滑回退鼠标追踪。
 - **动态认主仪式 (LoRA)**：首创桌面伴侣“签订契约”系统。用户可在 UI 面板中跟随三段式引导录入个人面部数据，后台将自动进行微调训练并生成专属于你的 LoRA 权重，让模型越用越懂你！数据完全保存在本地，支持随时重新认主或一键消除。
 - **多引擎无缝热切**：默认 **RNN + Attention** 情绪模型，另支持自训练 PyTorch CNN / MobileNet，以及专为弱光/无摄像头环境打造的“亮度模拟器”。设置面板一键热切换，即刻生效（DeepFace 已彻底移除）。
 
@@ -110,6 +111,7 @@ python webui.py
 miku-cure/
 ├── backend/
 │   ├── camera.py           # 极低功耗后台抽帧
+│   ├── face_tracker.py     # MediaPipe Live2D 语义面捕
 │   ├── detector.py         # 表情分类与滑动窗口防抖
 │   ├── llm.py              # LLM 通信层与 8小时自动压缩记忆系统
 │   ├── logger.py           # 多语言 Markdown 日志系统

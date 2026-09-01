@@ -41,7 +41,7 @@ class MockElement {
 const elementIds = [
   'miku-3d-canvas', 'miku-3d-layer', 'miku-display', 'miku-3d-status',
   'character-home-buttons', 'character-edit-buttons', 'character-adjust-toggle', 'character-watermark-toggle',
-  'character-adjust-dismiss',
+  'character-adjust-dismiss', 'character-tracking-status',
 ];
 const elements = Object.fromEntries(elementIds.map((id) => [id, new MockElement()]));
 const sent = [];
@@ -51,6 +51,7 @@ const ipc = {
     assert.strictEqual(channel, 'get-config');
     if (key === 'miku-hide-model-watermark') return false;
     if (key === 'miku-character-view') return {};
+    if (key === 'miku-character-tracking') return {};
     assert.fail(`Unexpected config key: ${key}`);
   },
   send(channel, payload) { sent.push([channel, payload]); },
@@ -60,16 +61,21 @@ const runtimeSource = fs.readFileSync(path.join(__dirname, '3d_runtime.js'), 'ut
 const context = {
   console,
   URL,
+  performance: { now: () => 0 },
   fetch: async () => ({ ok: false }),
   document: {
     getElementById: (id) => elements[id] || null,
     createElement: () => new MockElement(),
   },
+  CustomEvent: class CustomEvent { constructor(type, options) { this.type = type; this.detail = options?.detail; } },
   window: {
     miku: { ipc },
     clearTimeout() {},
     setTimeout() { return 1; },
     setInterval() { return 1; },
+    dispatchEvent() {},
+    screenX: 0,
+    screenY: 0,
   },
 };
 vm.runInNewContext(runtimeSource, context, { filename: '3d_runtime.js' });
@@ -94,6 +100,14 @@ assert.match(indexHtml, /id="character-adjust-toggle"[\s\S]*?title="编辑模式
 assert.match(indexHtml, /id="character-watermark-toggle"/);
 assert.match(indexHtml, /id="character-home-buttons"/);
 assert.match(indexHtml, /id="character-edit-buttons"/);
+assert.match(indexHtml, /id="character-tracking-status"/);
+assert.match(runtimeSource, /miku-face-tracking-toggle/);
+assert.match(runtimeSource, /mouse-tracking-subscription/);
+assert.match(
+  runtimeSource,
+  /resetParameters[\s\S]*?applyTrackingOverrides\(coreModel\)[\s\S]*?activeActionParameters/,
+  'tracking must be written after resets and before explicit action overrides',
+);
 assert.match(
   runtimeSource,
   /const width = Math\.max\(layer\?\.clientWidth \|\| canvas\.clientWidth, 1\)/,

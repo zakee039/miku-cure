@@ -9,7 +9,7 @@ set "PYTHONUTF8=1"
 
 echo.
 echo  ==========================================
-echo  ^|       Miku Cure - Start v1.2.1        ^|
+echo  ^|       Miku Cure - Start v1.2.2        ^|
 echo  ==========================================
 echo.
 

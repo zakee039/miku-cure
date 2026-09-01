@@ -239,25 +239,33 @@ document.addEventListener('mouseup', () => {
   isDragging = false;
 });
 
-// Emotion badge click to toggle camera
+// Emotion badge controls emotion recognition; camera lifetime is shared with face tracking.
 let isCameraConnected = false;
 let isCameraConnecting = false;
+let emotionRecognitionEnabled = ipcRenderer.sendSync('get-config', 'miku-emotion-recognition-enabled') !== false;
 const emotionBadge = document.getElementById('emotion-badge');
 
 function renderCameraConnectionState() {
   const emojiEl = document.getElementById('emotion-emoji');
   const labelEl = document.getElementById('emotion-label');
   const confEl = document.getElementById('emotion-conf');
-  if (isCameraConnecting) {
+  if (!emotionRecognitionEnabled) {
+    if (emojiEl) emojiEl.textContent = '🔌';
+    if (labelEl) {
+      labelEl.textContent = t('emotion.recognition_off');
+      labelEl.removeAttribute('data-i18n');
+    }
+    if (confEl) confEl.textContent = '--%';
+  } else if (isCameraConnecting) {
     if (labelEl) {
       labelEl.textContent = t('emotion.connecting');
       labelEl.removeAttribute('data-i18n');
     }
     if (confEl) confEl.textContent = '--%';
   } else if (!isCameraConnected) {
-    if (emojiEl) emojiEl.textContent = '🔌';
+    if (emojiEl) emojiEl.textContent = '⚠';
     if (labelEl) {
-      labelEl.textContent = t('emotion.disconnected');
+      labelEl.textContent = t('emotion.camera_unavailable');
       labelEl.removeAttribute('data-i18n');
     }
     if (confEl) confEl.textContent = '--%';
@@ -274,13 +282,29 @@ if (emotionBadge) {
       return;
     }
 
-    const shouldConnect = !isCameraConnected && !isCameraConnecting;
-    isCameraConnecting = shouldConnect;
-    if (!shouldConnect) isCameraConnected = false;
+    emotionRecognitionEnabled = !emotionRecognitionEnabled;
+    isCameraConnecting = emotionRecognitionEnabled && !isCameraConnected;
+    ipcRenderer.send('set-config', {
+      key: 'miku-emotion-recognition-enabled',
+      val: emotionRecognitionEnabled,
+    });
     renderCameraConnectionState();
-    sendOrQueueBackendMessage({ type: 'toggle_camera', state: shouldConnect });
+    sendOrQueueBackendMessage({
+      type: 'set_emotion_recognition',
+      enabled: emotionRecognitionEnabled,
+    });
   });
 }
+
+window.addEventListener('miku-face-tracking-toggle', (event) => {
+  const detail = event.detail;
+  if (!detail || typeof detail.enabled !== 'boolean') return;
+  sendOrQueueBackendMessage({
+    type: 'set_face_tracking',
+    enabled: detail.enabled,
+    generation: Number.isInteger(detail.generation) ? detail.generation : 0,
+  });
+});
 
 // 2. Miku Animation Player State Machine
 async function playRandomDailyVideo() {
@@ -830,10 +854,25 @@ async function connectBackend() {
         if (!backendReady) {
           backendReady = true;
           console.log('Backend ready handshake OK.');
+          sendOrQueueBackendMessage({
+            type: 'set_emotion_recognition',
+            enabled: emotionRecognitionEnabled,
+          });
+          const trackingState = window.Miku3D?.getTrackingState?.();
+          if (trackingState) {
+            sendOrQueueBackendMessage({
+              type: 'set_face_tracking',
+              enabled: trackingState.faceEnabled,
+              generation: trackingState.generation,
+            });
+          }
         }
         syncConfigToBackend(false);
         if (data.type === 'backend_ready' && typeof data.camera_enabled === 'boolean') {
           isCameraConnected = data.camera_enabled;
+          if (typeof data.emotion_recognition_enabled === 'boolean') {
+            emotionRecognitionEnabled = data.emotion_recognition_enabled;
+          }
           isCameraConnecting = false;
           renderCameraConnectionState();
         }
@@ -841,8 +880,23 @@ async function connectBackend() {
 
       if (data.type === 'camera_status' && typeof data.connected === 'boolean') {
         isCameraConnected = data.connected;
+        if (typeof data.emotionEnabled === 'boolean') emotionRecognitionEnabled = data.emotionEnabled;
         isCameraConnecting = false;
         renderCameraConnectionState();
+      }
+
+      if (data.type === 'emotion_recognition_status' && typeof data.enabled === 'boolean') {
+        emotionRecognitionEnabled = data.enabled;
+        isCameraConnecting = false;
+        renderCameraConnectionState();
+      }
+
+      if (data.type === 'face_tracking') {
+        window.Miku3D?.setFaceTrackingData?.(data);
+      }
+
+      if (data.type === 'tracking_status') {
+        window.Miku3D?.setFaceTrackingStatus?.(data);
       }
 
       // Real-time emotion update
@@ -854,7 +908,7 @@ async function connectBackend() {
         const emojiEl = document.getElementById('emotion-emoji');
         const labelEl = document.getElementById('emotion-label');
         const confEl  = document.getElementById('emotion-conf');
-        if (!isCameraConnected) return; // Do not update UI if disconnected manually
+        if (!emotionRecognitionEnabled) return;
         if (emojiEl) emojiEl.textContent = info.emoji;
         if (labelEl) {
           labelEl.textContent = t(info.key);

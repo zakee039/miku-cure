@@ -16,6 +16,10 @@ for (const testCase of cases) {
   assert.deepStrictEqual(config.homeButtons.map((button) => button.action), [testCase.homeButton]);
   assert.deepStrictEqual(config.editButtons, []);
   assert.strictEqual(Boolean(config.watermark), testCase.hasWatermark);
+  assert.strictEqual(config.tracking.mouse.supported, true);
+  assert.strictEqual(config.tracking.face.supported, true);
+  assert.strictEqual(config.tracking.face.parameters.headX.id, 'ParamAngleX');
+  assert.strictEqual(config.tracking.face.parameters.eyeX.scale, -1);
   if (testCase.folder === 'miku') {
     assert.deepStrictEqual(config.watermark.partIds, ['Part18', 'Part17']);
   }
@@ -58,6 +62,17 @@ const sanitized = sanitizeModelConfig({
     { id: 'edit-safe', function: 'action', action: 'safe', icon: '🌸', title: '编辑动作' },
   ],
   watermark: { partIds: ['Part18', '../bad'], hiddenValue: -5, visibleValue: 8 },
+  tracking: {
+    mouse: { supported: true, eyeStrength: 0.7, headStrength: 99, bodyStrength: 0.1 },
+    face: {
+      supported: true,
+      parameters: {
+        headX: { id: 'ParamAngleX', scale: 30, offset: 0, min: -30, max: 30 },
+        script: { id: 'ParamBad', scale: 1, offset: 0, min: -1, max: 1 },
+        eyeX: { id: '../bad', scale: 1, offset: 0, min: -1, max: 1 },
+      },
+    },
+  },
 });
 assert.deepStrictEqual(Object.keys(sanitized.actions), ['safe']);
 assert.deepStrictEqual(sanitized.homeButtons.map((button) => button.id), ['safe']);
@@ -65,6 +80,9 @@ assert.deepStrictEqual(sanitized.editButtons.map((button) => button.id), ['edit-
 assert.deepStrictEqual(sanitized.watermark.partIds, ['Part18']);
 assert.strictEqual(sanitized.watermark.hiddenValue, 0);
 assert.strictEqual(sanitized.watermark.visibleValue, 1);
+assert.strictEqual(sanitized.tracking.mouse.eyeStrength, 0.7);
+assert.strictEqual(sanitized.tracking.mouse.headStrength, 0.45);
+assert.deepStrictEqual(Object.keys(sanitized.tracking.face.parameters), ['headX']);
 assert.deepStrictEqual(sanitizeModelConfig({ version: 2, actions: {} }), {});
 
 const legacy = sanitizeModelConfig({

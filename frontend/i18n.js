@@ -58,6 +58,8 @@ const translations = {
     'emotion.no_face':     '未识别',
     'emotion.disconnected':'已断开',
     'emotion.connecting':  '连接中...',
+    'emotion.recognition_off':'表情识别已关闭',
+    'emotion.camera_unavailable':'摄像头不可用',
 
     // Main Window — Buttons & Labels
     'btn.start_focus':     '开始专注',
@@ -83,7 +85,7 @@ const translations = {
     'chat.error.queue_full': '待发送消息过多，请稍后重试。',
 
     // Tooltips
-    'tip.emotion_badge':   '点击断开/连接摄像头',
+    'tip.emotion_badge':   '点击开启/关闭表情识别',
     'tip.timer':           '开始专注（番茄钟）',
     'tip.settings':        '打开设置',
     'tip.talent':          'Miku 才艺演示',
@@ -217,6 +219,8 @@ const translations = {
     'emotion.no_face':     '未認識',
     'emotion.disconnected':'切断済み',
     'emotion.connecting':  '接続中...',
+    'emotion.recognition_off':'表情認識オフ',
+    'emotion.camera_unavailable':'カメラ利用不可',
 
     // Main Window — Buttons & Labels
     'btn.start_focus':     '集中開始',
@@ -242,7 +246,7 @@ const translations = {
     'chat.error.queue_full': '送信待ちのメッセージが多すぎます。しばらくしてから再試行してください。',
 
     // Tooltips
-    'tip.emotion_badge':   'クリックでカメラ切断/接続',
+    'tip.emotion_badge':   'クリックで表情認識を切替',
     'tip.timer':           '集中タイマー（ポモドーロ）',
     'tip.settings':        '設定を開く',
     'tip.talent':          'Miku のパフォーマンス',
@@ -376,6 +380,8 @@ const translations = {
     'emotion.no_face':     'No Face',
     'emotion.disconnected':'Disconnected',
     'emotion.connecting':  'Connecting...',
+    'emotion.recognition_off':'Emotion recognition off',
+    'emotion.camera_unavailable':'Camera unavailable',
 
     // Main Window — Buttons & Labels
     'btn.start_focus':     'Start Focus',
@@ -401,7 +407,7 @@ const translations = {
     'chat.error.queue_full': 'Too many messages are waiting to send. Please try again later.',
 
     // Tooltips
-    'tip.emotion_badge':   'Click to toggle camera',
+    'tip.emotion_badge':   'Click to toggle emotion recognition',
     'tip.timer':           'Start Focus Timer (Pomodoro)',
     'tip.settings':        'Open Settings',
     'tip.talent':          'Miku Talent Show',

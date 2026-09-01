@@ -293,9 +293,11 @@ class ServiceManager:
         if not isinstance(config, dict):
             config = {}
         monitor_on_start = config.get(
-            "camera-monitor-on-start", config.get("launcher-auto-monitor", True)
+            "miku-emotion-recognition-enabled",
+            config.get("camera-monitor-on-start", config.get("launcher-auto-monitor", True)),
         )
         env["MIKU_CAMERA_MONITOR_ON_START"] = "1" if monitor_on_start else "0"
+        env["MIKU_EMOTION_RECOGNITION_ENABLED"] = "1" if monitor_on_start else "0"
         env.setdefault("CUDA_VISIBLE_DEVICES", "")
         env.setdefault("PYTHONIOENCODING", "utf-8")
 

@@ -1,6 +1,14 @@
 import cv2
 import threading
 import time
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class FrameSnapshot:
+    sequence: int
+    captured_at: float
+    image: object
 
 
 class Camera:
@@ -11,6 +19,8 @@ class Camera:
         self.target_fps = target_fps
         self.cap = None
         self.frame = None
+        self.frame_sequence = 0
+        self.frame_captured_at = 0.0
         self.thread = None
         self.lock = threading.Lock()
         self._state_lock = threading.RLock()
@@ -32,6 +42,12 @@ class Camera:
     def set_status_callback(self, callback):
         with self._state_lock:
             self._status_callback = callback
+
+    def set_target_fps(self, target_fps):
+        value = max(0.1, min(60.0, float(target_fps)))
+        with self._state_lock:
+            self.target_fps = value
+        return value
 
     def _notify_status(self, connected, error=None):
         with self._state_lock:
@@ -85,7 +101,6 @@ class Camera:
         return True
 
     def _capture_loop(self, cap, stop_event, generation, start_gate):
-        delay = 1.0 / max(self.target_fps, 0.1)
         failures = 0
         disconnect_error = None
         try:
@@ -99,7 +114,9 @@ class Camera:
                     failures = 0
                     owned = frame.copy()
                     with self.lock:
+                        self.frame_sequence += 1
                         self.frame = owned
+                        self.frame_captured_at = time.monotonic()
                 else:
                     failures += 1
                     if failures == 1:
@@ -109,6 +126,8 @@ class Camera:
                         print("Camera: Device stopped returning frames; marking disconnected.")
                         break
 
+                with self._state_lock:
+                    delay = 1.0 / max(self.target_fps, 0.1)
                 sleep_time = delay - (time.monotonic() - start_time)
                 if sleep_time > 0:
                     stop_event.wait(sleep_time)
@@ -145,6 +164,18 @@ class Camera:
             if self.frame is None:
                 return None
             return self.frame.copy()
+
+    def get_snapshot(self, after_sequence=0, copy_image=True):
+        """Return the latest immutable-style frame snapshot without consuming it."""
+        with self.lock:
+            if self.frame is None or self.frame_sequence <= int(after_sequence):
+                return None
+            image = self.frame.copy() if copy_image else self.frame
+            return FrameSnapshot(
+                sequence=self.frame_sequence,
+                captured_at=self.frame_captured_at,
+                image=image,
+            )
 
     def stop(self, timeout=2.0):
         with self._state_lock:

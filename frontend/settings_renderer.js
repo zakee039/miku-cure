@@ -493,7 +493,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let stream = null;
   let capturedData = [];
   let activeCeremonySocket = null;
-  let priorCameraConnected = null;
+  let ceremonyCameraLeaseHeld = false;
 
   async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -578,20 +578,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function cleanupCeremony() {
     stopCeremonyMedia();
-    if (activeCeremonySocket?.readyState === WebSocket.OPEN && priorCameraConnected !== null) {
-      activeCeremonySocket.send(JSON.stringify({ type: 'toggle_camera', state: priorCameraConnected }));
+    if (activeCeremonySocket?.readyState === WebSocket.OPEN && ceremonyCameraLeaseHeld) {
+      activeCeremonySocket.send(JSON.stringify({
+        type: 'set_camera_suspended', reason: 'training_capture', suspended: false,
+      }));
     }
   }
 
   async function restoreCeremonyCamera() {
     stopCeremonyMedia();
-    if (activeCeremonySocket?.readyState !== WebSocket.OPEN || priorCameraConnected === null) return;
-    activeCeremonySocket.send(JSON.stringify({ type: 'toggle_camera', state: priorCameraConnected }));
+    if (activeCeremonySocket?.readyState !== WebSocket.OPEN || !ceremonyCameraLeaseHeld) return;
+    activeCeremonySocket.send(JSON.stringify({
+      type: 'set_camera_suspended', reason: 'training_capture', suspended: false,
+    }));
     try {
       await waitForBackendMessage(
         activeCeremonySocket,
-        (data) => data.type === 'camera_status' && data.connected === priorCameraConnected,
+        (data) => data.type === 'camera_status' && data.suspended === false,
       );
+      ceremonyCameraLeaseHeld = false;
     } catch (error) {
       console.warn('Could not confirm camera restoration:', error.message);
     }
@@ -640,13 +645,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       activeCeremonySocket = await connectAuthenticatedBackend();
-      priorCameraConnected = await queryCameraState(activeCeremonySocket);
       ceremonyModalText.textContent = t('ceremony.starting');
-      activeCeremonySocket.send(JSON.stringify({ type: 'toggle_camera', state: false }));
+      activeCeremonySocket.send(JSON.stringify({
+        type: 'set_camera_suspended', reason: 'training_capture', suspended: true,
+      }));
       await waitForBackendMessage(
         activeCeremonySocket,
-        (data) => data.type === 'camera_status' && data.connected === false,
+        (data) => data.type === 'camera_status' && data.suspended === true && data.connected === false,
       );
+      ceremonyCameraLeaseHeld = true;
 
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       ceremonyVideo.srcObject = stream;
@@ -708,7 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await restoreCeremonyCamera();
       if (activeCeremonySocket) activeCeremonySocket.close();
       activeCeremonySocket = null;
-      priorCameraConnected = null;
+      ceremonyCameraLeaseHeld = false;
     }
   }
 

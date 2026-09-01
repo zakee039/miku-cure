@@ -5,6 +5,7 @@
   const status = document.getElementById('miku-3d-status');
   const homeButtons = document.getElementById('character-home-buttons');
   const editButtons = document.getElementById('character-edit-buttons');
+  const trackingStatus = document.getElementById('character-tracking-status');
   const adjustToggle = document.getElementById('character-adjust-toggle');
   const watermarkToggle = document.getElementById('character-watermark-toggle');
   const adjustDismiss = document.getElementById('character-adjust-dismiss');
@@ -41,6 +42,19 @@
   let activeModelConfig = {};
   let activeActionParameters = {};
   let characterViews = readCharacterViews();
+  let characterTracking = readCharacterTracking();
+  let mouseTrackingButton;
+  let faceTrackingButton;
+  let cursorScreenPoint;
+  let faceTarget = {};
+  let faceLastValidAt = 0;
+  let faceValidSince = 0;
+  let activeTrackingSource = 'none';
+  let faceBackendReason = 'disabled';
+  let currentTrackingValues = {};
+  let pendingTrackingRelease = new Set();
+  let lastTrackingFrameAt = performance.now();
+  let lastFaceSequence = 0;
 
   function setStatus(message) {
     if (status) status.textContent = message;
@@ -89,6 +103,60 @@
     displayArea?.classList.toggle('is-adjusting-model', adjustmentEnabled);
   }
 
+  function readCharacterTracking() {
+    const saved = ipcRenderer?.sendSync?.('get-config', 'miku-character-tracking');
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+    return Object.fromEntries(Object.entries(saved).flatMap(([modelId, value]) => (
+      value && typeof value === 'object'
+        && typeof value.mouseEnabled === 'boolean'
+        && typeof value.faceEnabled === 'boolean'
+        ? [[modelId, { mouseEnabled: value.mouseEnabled, faceEnabled: value.faceEnabled }]]
+        : []
+    )));
+  }
+
+  function currentTrackingPreference() {
+    if (!selectedModelId) return { mouseEnabled: false, faceEnabled: false };
+    return characterTracking[selectedModelId] || {
+      mouseEnabled: activeModelConfig.tracking?.mouse?.supported === true,
+      faceEnabled: false,
+    };
+  }
+
+  function ensureTrackingPreference() {
+    if (!selectedModelId) return currentTrackingPreference();
+    if (!characterTracking[selectedModelId]) {
+      characterTracking[selectedModelId] = currentTrackingPreference();
+    }
+    return characterTracking[selectedModelId];
+  }
+
+  function saveCharacterTracking() {
+    ipcRenderer?.send?.('set-config', { key: 'miku-character-tracking', val: characterTracking });
+  }
+
+  function emitFaceTrackingState(enabled = currentTrackingPreference().faceEnabled) {
+    window.dispatchEvent(new CustomEvent('miku-face-tracking-toggle', {
+      detail: {
+        enabled: Boolean(enabled && activeModelConfig.tracking?.face?.supported),
+        modelId: selectedModelId,
+        generation,
+      },
+    }));
+  }
+
+  function syncMouseTrackingSubscription() {
+    const enabled = Boolean(
+      live2dModel
+      && requestedMode === '3d'
+      && !adjustmentEnabled
+      && activeTrackingSource === 'mouse'
+      && activeModelConfig.tracking?.mouse?.supported
+      && currentTrackingPreference().mouseEnabled
+    );
+    ipcRenderer?.send?.('mouse-tracking-subscription', enabled);
+  }
+
   function updateWatermarkButton() {
     if (!watermarkToggle) return;
     const label = hideModelWatermark ? '恢复水印' : '去除水印';
@@ -118,9 +186,92 @@
     }
   }
 
+  function createTrackingButton(icon, title, enabled, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'character-model-button';
+    button.textContent = icon;
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.setAttribute('aria-pressed', String(enabled));
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onClick();
+    });
+    return button;
+  }
+
+  function updateTrackingUi() {
+    const preference = currentTrackingPreference();
+    if (mouseTrackingButton) {
+      const suffix = preference.mouseEnabled
+        ? (activeTrackingSource === 'mouse' ? '使用中' : '备用')
+        : '关闭';
+      mouseTrackingButton.title = `鼠标追踪 · ${suffix}`;
+      mouseTrackingButton.setAttribute('aria-label', mouseTrackingButton.title);
+      mouseTrackingButton.setAttribute('aria-pressed', String(preference.mouseEnabled));
+    }
+    if (faceTrackingButton) {
+      let suffix = '关闭';
+      if (preference.faceEnabled) {
+        suffix = activeTrackingSource === 'face'
+          ? '使用中'
+          : faceBackendReason === 'camera_open_failed'
+            ? '摄像头不可用'
+            : faceBackendReason === 'face_landmarker_model_missing'
+              ? '检测模型缺失'
+              : '未检测到人脸';
+      }
+      faceTrackingButton.title = `面部捕捉 · ${suffix}`;
+      faceTrackingButton.setAttribute('aria-label', faceTrackingButton.title);
+      faceTrackingButton.setAttribute('aria-pressed', String(preference.faceEnabled));
+    }
+    if (trackingStatus) {
+      trackingStatus.textContent = activeTrackingSource === 'face'
+        ? '当前追踪：面捕'
+        : activeTrackingSource === 'mouse'
+          ? (preference.faceEnabled ? '当前追踪：鼠标（面捕暂不可用）' : '当前追踪：鼠标')
+          : '当前追踪：关闭';
+    }
+  }
+
+  function renderTrackingButtons() {
+    mouseTrackingButton = undefined;
+    faceTrackingButton = undefined;
+    if (!editButtons || !live2dModel) return;
+    const preference = ensureTrackingPreference();
+    if (activeModelConfig.tracking?.mouse?.supported) {
+      mouseTrackingButton = createTrackingButton('🖱', '鼠标追踪', preference.mouseEnabled, () => {
+        preference.mouseEnabled = !preference.mouseEnabled;
+        saveCharacterTracking();
+        syncMouseTrackingSubscription();
+        updateTrackingUi();
+      });
+      editButtons.appendChild(mouseTrackingButton);
+    }
+    if (activeModelConfig.tracking?.face?.supported) {
+      faceTrackingButton = createTrackingButton('◉', '面部捕捉', preference.faceEnabled, () => {
+        preference.faceEnabled = !preference.faceEnabled;
+        faceValidSince = 0;
+        faceLastValidAt = 0;
+        faceTarget = {};
+        faceBackendReason = preference.faceEnabled ? 'initializing' : 'disabled';
+        saveCharacterTracking();
+        emitFaceTrackingState();
+        updateTrackingUi();
+      });
+      editButtons.appendChild(faceTrackingButton);
+    }
+    updateTrackingUi();
+  }
+
   function renderModelButtons() {
     renderConfiguredButtons(homeButtons, activeModelConfig.homeButtons);
     renderConfiguredButtons(editButtons, activeModelConfig.editButtons);
+    renderTrackingButtons();
+    syncMouseTrackingSubscription();
+    emitFaceTrackingState();
   }
 
   function setWatermarkHidden(hidden, persist = false) {
@@ -136,6 +287,8 @@
     adjustmentEnabled = Boolean(enabled);
     dragState = undefined;
     updateAdjustmentButton();
+    syncMouseTrackingSubscription();
+    updateTrackingUi();
   }
 
   function applyMmdView() {
@@ -219,12 +372,113 @@
     return '';
   }
 
+  function faceSemanticTarget() {
+    if (!faceLastValidAt) return {};
+    const age = performance.now() - faceLastValidAt;
+    const decay = age <= 200 ? 1 : clamp(1 - (age - 200) / 2800, 0, 1);
+    const neutral = { eyeLOpen: 1, eyeROpen: 1 };
+    return Object.fromEntries(Object.entries(faceTarget).map(([key, value]) => [
+      key,
+      (neutral[key] ?? 0) + (value - (neutral[key] ?? 0)) * decay,
+    ]));
+  }
+
+  function mouseSemanticTarget() {
+    if (!cursorScreenPoint || !live2dModel || !canvas) return {};
+    const rect = canvas.getBoundingClientRect();
+    const bounds = live2dModel.getBounds();
+    const centerX = window.screenX + rect.left + bounds.x + bounds.width / 2;
+    const centerY = window.screenY + rect.top + bounds.y + bounds.height / 2;
+    const rangeX = Math.max(rect.width * 1.5, 1);
+    const rangeY = Math.max(rect.height * 1.5, 1);
+    const x = clamp((cursorScreenPoint.x - centerX) / rangeX, -1, 1);
+    const y = clamp((centerY - cursorScreenPoint.y) / rangeY, -1, 1);
+    const config = activeModelConfig.tracking?.mouse || {};
+    return {
+      eyeX: x * config.eyeStrength,
+      eyeY: y * config.eyeStrength,
+      headX: x * config.headStrength,
+      headY: y * config.headStrength,
+      headZ: x * config.headStrength * 0.15,
+      bodyX: x * config.bodyStrength,
+      bodyY: y * config.bodyStrength,
+      bodyZ: x * config.bodyStrength * 0.15,
+    };
+  }
+
+  function resolveTrackingSource(now) {
+    const preference = currentTrackingPreference();
+    let next = 'none';
+    if (!adjustmentEnabled) {
+      const faceGraceActive = activeTrackingSource === 'face'
+        && preference.faceEnabled
+        && faceLastValidAt
+        && now - faceLastValidAt <= 3000;
+      const faceStable = preference.faceEnabled
+        && faceValidSince
+        && now - faceValidSince >= 400
+        && faceLastValidAt
+        && now - faceLastValidAt <= 3000;
+      if (faceGraceActive || faceStable) next = 'face';
+      else if (preference.mouseEnabled && activeModelConfig.tracking?.mouse?.supported) next = 'mouse';
+    }
+    if (next !== activeTrackingSource) {
+      pendingTrackingRelease = new Set(Object.keys(currentTrackingValues));
+      activeTrackingSource = next;
+      currentTrackingValues = {};
+      syncMouseTrackingSubscription();
+      updateTrackingUi();
+    }
+    return next;
+  }
+
+  function applyTrackingOverrides(coreModel) {
+    const now = performance.now();
+    const source = resolveTrackingSource(now);
+    const bindings = activeModelConfig.tracking?.face?.parameters || {};
+    const target = source === 'face'
+      ? faceSemanticTarget()
+      : source === 'mouse'
+        ? mouseSemanticTarget()
+        : {};
+    for (const semantic of pendingTrackingRelease) {
+      if (Object.hasOwn(target, semantic)) continue;
+      const binding = bindings[semantic];
+      if (!binding) continue;
+      const neutral = semantic === 'eyeLOpen' || semantic === 'eyeROpen' ? 1 : 0;
+      coreModel.setParameterValueById?.(
+        binding.id,
+        clamp(neutral * binding.scale + binding.offset, binding.min, binding.max),
+      );
+    }
+    pendingTrackingRelease.clear();
+    if (source === 'none') {
+      lastTrackingFrameAt = now;
+      return;
+    }
+    const elapsed = clamp((now - lastTrackingFrameAt) / 1000, 0, 0.1);
+    lastTrackingFrameAt = now;
+    const alpha = 1 - Math.exp(-elapsed * (source === 'face' ? 16 : 10));
+    for (const [semantic, rawTarget] of Object.entries(target)) {
+      const binding = bindings[semantic];
+      if (!binding || !Number.isFinite(rawTarget)) continue;
+      const previous = Number.isFinite(currentTrackingValues[semantic])
+        ? currentTrackingValues[semantic]
+        : rawTarget;
+      const smoothed = previous + (rawTarget - previous) * alpha;
+      currentTrackingValues[semantic] = smoothed;
+      const value = clamp(smoothed * binding.scale + binding.offset, binding.min, binding.max);
+      coreModel.setParameterValueById?.(binding.id, value);
+    }
+  }
+
   function applyLive2DOverrides() {
     const coreModel = live2dModel?.internalModel?.coreModel;
     if (!coreModel) return;
     for (const parameterId of activeModelConfig.resetParameters || []) {
       coreModel.setParameterValueById?.(parameterId, 0);
     }
+    applyTrackingOverrides(coreModel);
     for (const [parameterId, value] of Object.entries(activeActionParameters)) {
       coreModel.setParameterValueById?.(parameterId, value);
     }
@@ -426,6 +680,8 @@
 
   function clearRuntime() {
     generation += 1;
+    ipcRenderer?.send?.('mouse-tracking-subscription', false);
+    emitFaceTrackingState(false);
     if (frameId) cancelAnimationFrame(frameId);
     frameId = undefined;
     if (resizeHandler) window.removeEventListener('resize', resizeHandler);
@@ -438,6 +694,13 @@
     loading = false;
     resetAction();
     activeModelConfig = {};
+    activeTrackingSource = 'none';
+    faceTarget = {};
+    faceLastValidAt = 0;
+    faceValidSince = 0;
+    lastFaceSequence = 0;
+    currentTrackingValues = {};
+    pendingTrackingRelease = new Set();
     homeButtons?.replaceChildren();
     editButtons?.replaceChildren();
     circleTrace = undefined;
@@ -464,6 +727,14 @@
     for (const modelId of Object.keys(characterViews)) {
       if (!availableIds.has(modelId)) delete characterViews[modelId];
     }
+    let trackingChanged = false;
+    for (const modelId of Object.keys(characterTracking)) {
+      if (!availableIds.has(modelId)) {
+        delete characterTracking[modelId];
+        trackingChanged = true;
+      }
+    }
+    if (trackingChanged) saveCharacterTracking();
     const selected = models.find((model) => model.id === selectedModelId)
       || models.find((model) => model.type === 'live2d')
       || models[0];
@@ -679,6 +950,53 @@
     if (name) live2dModel.expression(name).catch((error) => console.warn('Live2D expression failed:', error));
   }
 
+  function semanticFaceTarget(payload) {
+    return {
+      headX: payload.head?.x,
+      headY: payload.head?.y,
+      headZ: payload.head?.z,
+      bodyX: payload.body?.x,
+      bodyY: payload.body?.y,
+      bodyZ: payload.body?.z,
+      eyeX: payload.eyes?.x,
+      eyeY: payload.eyes?.y,
+      eyeLOpen: payload.eyes?.leftOpen,
+      eyeROpen: payload.eyes?.rightOpen,
+      browLY: payload.brows?.leftY,
+      browRY: payload.brows?.rightY,
+      browLForm: payload.brows?.form,
+      browRForm: payload.brows?.form,
+      mouthOpen: payload.mouth?.open,
+      mouthForm: payload.mouth?.smile,
+      mouthX: payload.mouth?.x,
+      mouthPucker: payload.mouth?.pucker,
+      mouthShrug: payload.mouth?.shrug,
+      mouthRollLower: payload.mouth?.rollLower,
+      cheekPuff: payload.cheekPuff,
+    };
+  }
+
+  function setFaceTrackingData(payload) {
+    if (!payload || typeof payload !== 'object' || payload.generation !== generation) return;
+    if (!Number.isInteger(payload.sequence) || payload.sequence <= lastFaceSequence) return;
+    lastFaceSequence = payload.sequence;
+    const now = performance.now();
+    if (payload.valid === true) {
+      const next = Object.fromEntries(Object.entries(semanticFaceTarget(payload)).filter(([, value]) => (
+        Number.isFinite(value) && value >= -2 && value <= 2
+      )));
+      if (!Object.keys(next).length) return;
+      faceTarget = next;
+      faceLastValidAt = now;
+      if (!faceValidSince) faceValidSince = now;
+      faceBackendReason = 'ok';
+    } else {
+      faceValidSince = 0;
+      faceBackendReason = typeof payload.reason === 'string' ? payload.reason : 'face_lost';
+    }
+    updateTrackingUi();
+  }
+
   window.Miku3D = Object.freeze({
     setMode(mode) {
       const nextMode = mode === '3d' ? '3d' : 'media';
@@ -726,6 +1044,21 @@
       if (performAction(activeModelConfig.interactions?.negativeReport)) noteInteraction();
     },
     noteInteraction,
+    setFaceTrackingData,
+    setFaceTrackingStatus(statusPayload) {
+      if (!statusPayload || typeof statusPayload !== 'object') return;
+      if (typeof statusPayload.reason === 'string') faceBackendReason = statusPayload.reason;
+      updateTrackingUi();
+    },
+    getTrackingState() {
+      const preference = currentTrackingPreference();
+      return {
+        mouseEnabled: Boolean(preference.mouseEnabled),
+        faceEnabled: Boolean(preference.faceEnabled && activeModelConfig.tracking?.face?.supported),
+        activeSource: activeTrackingSource,
+        generation,
+      };
+    },
     setEmotion(emotion) {
       const offsets = {
         happy: -0.16, surprise: 0.18, anger: 0.12, sadness: -0.1,
@@ -754,6 +1087,10 @@
   ipcRenderer?.on?.('watermark-visibility-changed', (_event, hidden) => {
     if (typeof hidden !== 'boolean') return;
     setWatermarkHidden(hidden);
+  });
+  ipcRenderer?.on?.('cursor-screen-point', (_event, point) => {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    cursorScreenPoint = { x: point.x, y: point.y };
   });
   updateAdjustmentButton();
   updateWatermarkButton();

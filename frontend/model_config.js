@@ -133,6 +133,54 @@ function sanitizeEmotions(value) {
   }));
 }
 
+const TRACKING_PARAMETER_KEYS = new Set([
+  'headX', 'headY', 'headZ', 'bodyX', 'bodyY', 'bodyZ',
+  'eyeX', 'eyeY', 'eyeLOpen', 'eyeROpen',
+  'browLY', 'browRY', 'browLForm', 'browRForm',
+  'mouthOpen', 'mouthForm', 'mouthX', 'cheekPuff',
+  'mouthPucker', 'mouthShrug', 'mouthRollLower',
+]);
+
+function sanitizeTrackingBinding(value) {
+  if (!isPlainObject(value)) return undefined;
+  const id = simpleId(value.id);
+  const scale = finiteNumber(value.scale, -1000, 1000);
+  const offset = finiteNumber(value.offset ?? 0, -1000, 1000);
+  const minimum = finiteNumber(value.min, -1000, 1000);
+  const maximum = finiteNumber(value.max, -1000, 1000);
+  if (!id || scale === undefined || offset === undefined
+    || minimum === undefined || maximum === undefined || minimum >= maximum) return undefined;
+  return { id, scale, offset, min: minimum, max: maximum };
+}
+
+function sanitizeTracking(value) {
+  if (!isPlainObject(value)) return {};
+  const result = {};
+  if (isPlainObject(value.mouse)) {
+    result.mouse = {
+      supported: value.mouse.supported === true,
+      eyeStrength: finiteNumber(value.mouse.eyeStrength, 0, 2) ?? 0.75,
+      headStrength: finiteNumber(value.mouse.headStrength, 0, 2) ?? 0.45,
+      bodyStrength: finiteNumber(value.mouse.bodyStrength, 0, 2) ?? 0.15,
+    };
+  }
+  if (isPlainObject(value.face)) {
+    const parameters = isPlainObject(value.face.parameters)
+      ? Object.fromEntries(Object.entries(value.face.parameters).flatMap(([key, binding]) => {
+        if (!TRACKING_PARAMETER_KEYS.has(key)) return [];
+        const safe = sanitizeTrackingBinding(binding);
+        return safe ? [[key, safe]] : [];
+      }))
+      : {};
+    result.face = {
+      supported: value.face.supported === true,
+      profile: boundedText(value.face.profile, 64) || 'mediapipe-face-landmarker-v1',
+      parameters,
+    };
+  }
+  return result;
+}
+
 function sanitizeModelConfig(value) {
   if (!isPlainObject(value) || value.version !== 1) return {};
   const actions = sanitizeActions(value.actions);
@@ -147,6 +195,7 @@ function sanitizeModelConfig(value) {
     editButtons: sanitizeButtons(value.editButtons, actions),
     interactions: sanitizeInteractions(value.interactions, actions),
     emotions: sanitizeEmotions(value.emotions),
+    tracking: sanitizeTracking(value.tracking),
   };
   if (isPlainObject(value.watermark)) {
     const parameterIds = stringList(value.watermark.parameterIds);

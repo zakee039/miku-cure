@@ -43,6 +43,8 @@ assert.deepStrictEqual(
 assert.throws(() => exposed.ipc.send('not-allowed'));
 assert.throws(() => exposed.ipc.invoke('not-allowed'));
 assert.throws(() => exposed.ipc.on('not-allowed', () => {}));
+assert.doesNotThrow(() => exposed.ipc.send('mouse-tracking-subscription', true));
+assert.doesNotThrow(() => exposed.ipc.on('cursor-screen-point', () => {}));
 
 const renderers = ['renderer.js', 'settings_renderer.js', 'chat_renderer.js', 'report_renderer.js'];
 const operationPattern = /ipcRenderer\.(sendSync|send|invoke|on)\(\s*['"]([^'"]+)['"]/g;
