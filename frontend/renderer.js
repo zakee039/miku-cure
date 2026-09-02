@@ -723,6 +723,22 @@ function isObject(value) {
 
 function sendOrQueueBackendMessage(message) {
   if (!isObject(message) || typeof message.type !== 'string') return;
+
+  // Tracking state is level-triggered, not an event stream. During startup a
+  // stale false can be queued before the Live2D model is ready, while a newer
+  // true arrives during async config sync. Keep only the newest desired state
+  // and do not send it until config sync has established ordering.
+  if (message.type === 'set_face_tracking') {
+    const staleIndex = pendingBackendMessages.findIndex((item) => item?.type === 'set_face_tracking');
+    if (staleIndex >= 0) pendingBackendMessages.splice(staleIndex, 1);
+    if (ws && ws.readyState === WebSocket.OPEN && backendAuthenticated && configSynced) {
+      ws.send(JSON.stringify(message));
+      return;
+    }
+    pendingBackendMessages.push(message);
+    return;
+  }
+
   if (ws && ws.readyState === WebSocket.OPEN && backendAuthenticated) {
     ws.send(JSON.stringify(message));
     return;
@@ -859,10 +875,13 @@ async function connectBackend() {
             enabled: emotionRecognitionEnabled,
           });
           const trackingState = window.Miku3D?.getTrackingState?.();
-          if (trackingState) {
+          // Live2D model loading is asynchronous. Do not publish a temporary
+          // alse capability before the selected model config is ready; the
+          // model-ready tracking event will synchronize the persisted state.
+          if (trackingState?.modelReady) {
             sendOrQueueBackendMessage({
               type: 'set_face_tracking',
-              enabled: trackingState.faceEnabled,
+              enabled: trackingState.faceFeatureEnabled,
               generation: trackingState.generation,
             });
           }

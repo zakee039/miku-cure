@@ -37,7 +37,7 @@ for (const output of [process.stdout, process.stderr]) {
 app.name = 'Miku Cure';
 // Note: Electron API is setAppUserModelId (lowercase d), not setAppUserModelID
 if (process.platform === 'win32' && typeof app.setAppUserModelId === 'function') {
-  app.setAppUserModelId('MikuCure.DesktopPet.1.2.2');
+  app.setAppUserModelId('MikuCure.DesktopPet.1.2.3');
 }
 
 /** Unified app icon: miku face from miku/icon.* */
@@ -1264,11 +1264,16 @@ function sanitizeConfigValue(key, value) {
     const safeTracking = {};
     for (const [modelId, state] of entries) {
       if (!knownModels.has(modelId) || !isPlainObject(state)
-        || typeof state.mouseEnabled !== 'boolean'
-        || typeof state.faceEnabled !== 'boolean') return undefined;
+        || typeof state.mouseEnabled !== 'boolean') return undefined;
+      const bodyEnabled = typeof state.bodyEnabled === 'boolean'
+        ? state.bodyEnabled
+        : typeof state.faceEnabled === 'boolean'
+          ? state.faceEnabled
+          : undefined;
+      if (typeof bodyEnabled !== 'boolean') return undefined;
       safeTracking[modelId] = {
         mouseEnabled: state.mouseEnabled,
-        faceEnabled: state.faceEnabled,
+        bodyEnabled,
       };
     }
     return safeTracking;

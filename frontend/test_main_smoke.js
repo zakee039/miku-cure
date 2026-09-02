@@ -28,7 +28,7 @@ app.isPackaged = false;
 app.setAppUserModelId = () => {};
 app.disableHardwareAcceleration = () => {};
 app.getPath = () => __dirname;
-app.getVersion = () => '1.2.2';
+app.getVersion = () => '1.2.3';
 app.whenReady = () => Promise.resolve();
 app.quit = () => { quitCalls += 1; };
 
@@ -182,6 +182,20 @@ setImmediate(() => {
   assert.strictEqual(petWindow.isAlwaysOnTop(), true);
 
   const mainSender = { sender: petWindow.webContents };
+  const characterModels = ipcMain.handlers.get('list-character-models')(mainSender);
+  assert.ok(characterModels.length >= 1, 'tracking migration smoke requires a bundled character model');
+  const trackingModelId = characterModels[0].id;
+  ipcMain.emit('set-config', mainSender, {
+    key: 'miku-character-tracking',
+    val: { [trackingModelId]: { mouseEnabled: true, faceEnabled: true } },
+  });
+  const migratedTracking = JSON.parse(fs.readFileSync(path.join(testUserDir, 'config.json'), 'utf8'))['miku-character-tracking'];
+  assert.deepStrictEqual(
+    migratedTracking[trackingModelId],
+    { mouseEnabled: true, bodyEnabled: true },
+    'legacy faceEnabled tracking config must be normalized to bodyEnabled',
+  );
+  assert.strictEqual(Object.hasOwn(migratedTracking[trackingModelId], 'faceEnabled'), false);
   ipcMain.emit('open-settings', mainSender);
   const settingsWindow = windows[1];
   settingsWindow.emit('ready-to-show');

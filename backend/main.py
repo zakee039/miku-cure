@@ -995,7 +995,7 @@ if __name__ == '__main__':
     def on_client_connect():
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.2.2",
+            "version": "1.2.3",
             "model": detector.model_type,
             "model_ready": detector.is_ready,
             "detector_error": detector.last_error,
@@ -1033,7 +1033,7 @@ if __name__ == '__main__':
     if getattr(ws_server, 'bind_ok', False):
         ws_server.send_to_all({
             "type": "backend_ready",
-            "version": "1.2.2",
+            "version": "1.2.3",
             "model": detector.model_type,
             "model_ready": detector.is_ready,
             "detector_error": detector.last_error,

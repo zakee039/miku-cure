@@ -40,7 +40,7 @@ class MockElement {
 
 const elementIds = [
   'miku-3d-canvas', 'miku-3d-layer', 'miku-display', 'miku-3d-status',
-  'character-home-buttons', 'character-edit-buttons', 'character-adjust-toggle', 'character-watermark-toggle',
+  'character-home-buttons', 'character-edit-buttons', 'character-edit-feature-buttons', 'character-adjust-toggle', 'character-watermark-toggle',
   'character-adjust-dismiss', 'character-tracking-status',
 ];
 const elements = Object.fromEntries(elementIds.map((id) => [id, new MockElement()]));
@@ -81,28 +81,58 @@ const context = {
 vm.runInNewContext(runtimeSource, context, { filename: '3d_runtime.js' });
 
 const watermarkButton = elements['character-watermark-toggle'];
-assert.strictEqual(watermarkButton.textContent, '去除水印');
-assert.strictEqual(watermarkButton.attributes.get('aria-pressed'), 'false');
+assert.strictEqual(watermarkButton.textContent, '🖼️');
+assert.strictEqual(watermarkButton.attributes.get('aria-pressed'), 'true');
+assert.strictEqual(watermarkButton.classList.values.has('is-off'), false);
 watermarkButton.listeners.get('click')({ preventDefault() {}, stopPropagation() {} });
 assert.deepStrictEqual(JSON.parse(JSON.stringify(sent)), [
   ['set-config', { key: 'miku-hide-model-watermark', val: true }],
   ['watermark-visibility-changed', true],
 ]);
-assert.strictEqual(watermarkButton.textContent, '恢复水印');
-assert.strictEqual(watermarkButton.attributes.get('aria-pressed'), 'true');
-
-received.get('watermark-visibility-changed')({}, false);
-assert.strictEqual(watermarkButton.textContent, '去除水印');
+assert.strictEqual(watermarkButton.textContent, '🖼️');
 assert.strictEqual(watermarkButton.attributes.get('aria-pressed'), 'false');
+assert.strictEqual(watermarkButton.classList.values.has('is-off'), true);
+received.get('watermark-visibility-changed')({}, false);
+assert.strictEqual(watermarkButton.attributes.get('aria-pressed'), 'true');
+assert.strictEqual(watermarkButton.classList.values.has('is-off'), false);
 
 const indexHtml = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 assert.match(indexHtml, /id="character-adjust-toggle"[\s\S]*?title="编辑模式"/);
 assert.match(indexHtml, /id="character-watermark-toggle"/);
 assert.match(indexHtml, /id="character-home-buttons"/);
 assert.match(indexHtml, /id="character-edit-buttons"/);
+assert.match(indexHtml, /id="character-edit-feature-buttons"/);
 assert.match(indexHtml, /id="character-tracking-status"/);
 assert.match(runtimeSource, /miku-face-tracking-toggle/);
 assert.match(runtimeSource, /mouse-tracking-subscription/);
+assert.match(runtimeSource, /bodyEnabled/);
+assert.match(runtimeSource, /typeof value\.faceEnabled === 'boolean'[\s\S]*?bodyEnabled = value\.faceEnabled/, 'v1.2.2 faceEnabled preferences must migrate to bodyEnabled');
+const mainSource = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+assert.match(mainSource, /typeof state\.bodyEnabled === 'boolean'[\s\S]*?typeof state\.faceEnabled === 'boolean'[\s\S]*?bodyEnabled,/, 'main-process config sanitizer must normalize legacy faceEnabled to bodyEnabled');
+assert.match(runtimeSource, /editFeatureButtons\.appendChild\(watermarkToggle\)[\s\S]*?createFeatureButton\('🖱'[\s\S]*?createFeatureButton\('🫣'/, 'feature button order must be watermark, mouse, body');
+assert.match(runtimeSource, /faceFeatureEnabled/);
+assert.doesNotMatch(runtimeSource, /preference\.faceEnabled/);
+assert.match(runtimeSource, /createFeatureButton\('🖱', '鼠标追踪'/);
+assert.match(runtimeSource, /createFeatureButton\('🫣', '肢体追踪'/);
+assert.match(runtimeSource, /trackingStatus\.textContent = preference\.bodyEnabled[\s\S]*?当前追踪：肢体追踪/);
+assert.match(runtimeSource, /modelDragActive = true;[\s\S]*?syncMouseTrackingSubscription\(\)/);
+assert.match(runtimeSource, /modelDragActive = false;[\s\S]*?syncMouseTrackingSubscription\(\)/);
+assert.doesNotMatch(runtimeSource, /resolveTrackingSource\(now\)[\s\S]{0,250}if \(!adjustmentEnabled\)/, 'edit mode must not disable the tracking arbiter');
+assert.match(runtimeSource, /const FACE_LOSS_FALLBACK_MS = 3000/);
+assert.match(runtimeSource, /now - faceLastValidAt < FACE_LOSS_FALLBACK_MS/);
+assert.match(runtimeSource, /const FACE_RECOVERY_STABLE_MS = 400/);
+assert.match(runtimeSource, /now - faceValidSince >= FACE_RECOVERY_STABLE_MS/);
+assert.match(runtimeSource, /function mirroredFaceSemanticTarget\(payload\)/);
+assert.match(runtimeSource, /headX: -payload\.head\?\.x/);
+assert.match(runtimeSource, /headY: -payload\.head\?\.y/);
+assert.match(runtimeSource, /headZ: -payload\.head\?\.z/);
+assert.match(runtimeSource, /eyeX: -payload\.eyes\?\.x/);
+assert.match(runtimeSource, /eyeY: payload\.eyes\?\.y/);
+assert.match(runtimeSource, /eyeLOpen: payload\.eyes\?\.rightOpen/);
+assert.match(runtimeSource, /eyeROpen: payload\.eyes\?\.leftOpen/);
+assert.match(runtimeSource, /mouthX: payload\.mouth\?\.x/);
+assert.match(runtimeSource, /modelReady: Boolean\(live2dModel && activeModelConfig\?\.version === 1\)/);
+assert.match(runtimeSource, /暂未检测到人脸，3 秒后回退鼠标/);
 assert.match(
   runtimeSource,
   /resetParameters[\s\S]*?applyTrackingOverrides\(coreModel\)[\s\S]*?activeActionParameters/,
@@ -131,9 +161,12 @@ assert.match(
 );
 assert.match(
   styleSource,
-  /\.has-live2d\.is-adjusting \.character-edit-buttons:not\(:empty\)/,
-  'edit buttons must only be visible inside edit mode',
+  /\.has-live2d\.is-adjusting \.character-edit-buttons:not\(:empty\),[\s\S]*?\.character-edit-feature-buttons:not\(:empty\)/,
+  'edit buttons and model features must only be visible inside edit mode',
 );
+assert.match(styleSource, /\.character-edit-feature-buttons[\s\S]*?flex-direction: column/);
+assert.match(styleSource, /\.character-model-button\.is-off::after[\s\S]*?background: #e53935[\s\S]*?rotate\(-45deg\)/);
+assert.match(styleSource, /\.character-tracking-status[\s\S]*?right: 8px;[\s\S]*?bottom: 8px;/);
 assert.match(
   runtimeSource,
   /activeModelConfig\.actions\?\.\[action\]/,
@@ -172,6 +205,8 @@ assert.doesNotMatch(
 assert.doesNotMatch(runtimeSource, /XUANBAO|LIVE2D_ACTIONS|character-feed-toggle/);
 
 const rendererSource = fs.readFileSync(path.join(__dirname, 'renderer.js'), 'utf8');
+assert.match(rendererSource, /message\.type === 'set_face_tracking'[\s\S]*?staleIndex = pendingBackendMessages\.findIndex[\s\S]*?configSynced/, 'face tracking startup state must be coalesced until config sync');
+assert.match(rendererSource, /if \(trackingState\?\.modelReady\)[\s\S]*?set_face_tracking/, 'backend-ready handshake must wait for Live2D model capability');
 assert.match(
   rendererSource,
   /is3dMode\(\) && window\.Miku3D\?\.hasMusicAction\?\.\(\) === true/,

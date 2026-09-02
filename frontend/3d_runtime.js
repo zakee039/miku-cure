@@ -5,11 +5,14 @@
   const status = document.getElementById('miku-3d-status');
   const homeButtons = document.getElementById('character-home-buttons');
   const editButtons = document.getElementById('character-edit-buttons');
+  const editFeatureButtons = document.getElementById('character-edit-feature-buttons');
   const trackingStatus = document.getElementById('character-tracking-status');
   const adjustToggle = document.getElementById('character-adjust-toggle');
   const watermarkToggle = document.getElementById('character-watermark-toggle');
   const adjustDismiss = document.getElementById('character-adjust-dismiss');
   const ipcRenderer = window.miku?.ipc;
+  const FACE_LOSS_FALLBACK_MS = 3000;
+  const FACE_RECOVERY_STABLE_MS = 400;
 
   let renderer;
   let scene;
@@ -42,10 +45,12 @@
   let activeModelConfig = {};
   let activeActionParameters = {};
   let characterViews = readCharacterViews();
+  let trackingNeedsMigration = false;
   let characterTracking = readCharacterTracking();
   let mouseTrackingButton;
-  let faceTrackingButton;
+  let bodyTrackingButton;
   let cursorScreenPoint;
+  let modelDragActive = false;
   let faceTarget = {};
   let faceLastValidAt = 0;
   let faceValidSince = 0;
@@ -106,20 +111,34 @@
   function readCharacterTracking() {
     const saved = ipcRenderer?.sendSync?.('get-config', 'miku-character-tracking');
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
-    return Object.fromEntries(Object.entries(saved).flatMap(([modelId, value]) => (
-      value && typeof value === 'object'
-        && typeof value.mouseEnabled === 'boolean'
-        && typeof value.faceEnabled === 'boolean'
-        ? [[modelId, { mouseEnabled: value.mouseEnabled, faceEnabled: value.faceEnabled }]]
-        : []
-    )));
+    const entries = [];
+    for (const [modelId, value] of Object.entries(saved)) {
+      if (!value || typeof value !== 'object' || typeof value.mouseEnabled !== 'boolean') continue;
+      let bodyEnabled;
+      if (typeof value.bodyEnabled === 'boolean') {
+        bodyEnabled = value.bodyEnabled;
+      } else if (typeof value.faceEnabled === 'boolean') {
+        // v1.2.2 compatibility: faceEnabled was the old user-facing switch.
+        bodyEnabled = value.faceEnabled;
+        trackingNeedsMigration = true;
+      } else {
+        continue;
+      }
+      entries.push([modelId, { mouseEnabled: value.mouseEnabled, bodyEnabled }]);
+    }
+    return Object.fromEntries(entries);
+  }
+
+  function bodyTrackingSupported() {
+    return activeModelConfig.tracking?.face?.supported === true
+      || activeModelConfig.tracking?.upperBody?.supported === true;
   }
 
   function currentTrackingPreference() {
-    if (!selectedModelId) return { mouseEnabled: false, faceEnabled: false };
+    if (!selectedModelId) return { mouseEnabled: false, bodyEnabled: false };
     return characterTracking[selectedModelId] || {
       mouseEnabled: activeModelConfig.tracking?.mouse?.supported === true,
-      faceEnabled: false,
+      bodyEnabled: false,
     };
   }
 
@@ -128,6 +147,10 @@
     if (!characterTracking[selectedModelId]) {
       characterTracking[selectedModelId] = currentTrackingPreference();
     }
+    if (trackingNeedsMigration) {
+      trackingNeedsMigration = false;
+      saveCharacterTracking();
+    }
     return characterTracking[selectedModelId];
   }
 
@@ -135,7 +158,11 @@
     ipcRenderer?.send?.('set-config', { key: 'miku-character-tracking', val: characterTracking });
   }
 
-  function emitFaceTrackingState(enabled = currentTrackingPreference().faceEnabled) {
+  function faceFeatureEnabled(preference = currentTrackingPreference()) {
+    return Boolean(preference.bodyEnabled && activeModelConfig.tracking?.face?.supported);
+  }
+
+  function emitFaceTrackingState(enabled = currentTrackingPreference().bodyEnabled) {
     window.dispatchEvent(new CustomEvent('miku-face-tracking-toggle', {
       detail: {
         enabled: Boolean(enabled && activeModelConfig.tracking?.face?.supported),
@@ -149,7 +176,7 @@
     const enabled = Boolean(
       live2dModel
       && requestedMode === '3d'
-      && !adjustmentEnabled
+      && !modelDragActive
       && activeTrackingSource === 'mouse'
       && activeModelConfig.tracking?.mouse?.supported
       && currentTrackingPreference().mouseEnabled
@@ -157,14 +184,19 @@
     ipcRenderer?.send?.('mouse-tracking-subscription', enabled);
   }
 
+  function setFeatureButtonState(button, icon, title, enabled, detail = '') {
+    if (!button) return;
+    const description = detail ? `${title} · ${detail}` : title;
+    button.textContent = icon;
+    button.title = description;
+    button.setAttribute('aria-label', description);
+    button.setAttribute('aria-pressed', String(Boolean(enabled)));
+    button.classList.toggle('is-off', !enabled);
+  }
+
   function updateWatermarkButton() {
-    if (!watermarkToggle) return;
-    const label = hideModelWatermark ? '恢复水印' : '去除水印';
-    const description = hideModelWatermark ? '恢复模型水印' : '去除模型水印';
-    watermarkToggle.textContent = label;
-    watermarkToggle.title = description;
-    watermarkToggle.setAttribute('aria-label', description);
-    watermarkToggle.setAttribute('aria-pressed', String(hideModelWatermark));
+    const watermarkEnabled = !hideModelWatermark;
+    setFeatureButtonState(watermarkToggle, '🖼️', '水印', watermarkEnabled, watermarkEnabled ? '开启' : '关闭');
   }
 
   function renderConfiguredButtons(container, definitions) {
@@ -186,14 +218,11 @@
     }
   }
 
-  function createTrackingButton(icon, title, enabled, onClick) {
+  function createFeatureButton(icon, title, enabled, onClick) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'character-model-button';
-    button.textContent = icon;
-    button.title = title;
-    button.setAttribute('aria-label', title);
-    button.setAttribute('aria-pressed', String(enabled));
+    setFeatureButtonState(button, icon, title, enabled);
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -205,63 +234,69 @@
   function updateTrackingUi() {
     const preference = currentTrackingPreference();
     if (mouseTrackingButton) {
-      const suffix = preference.mouseEnabled
-        ? (activeTrackingSource === 'mouse' ? '使用中' : '备用')
-        : '关闭';
-      mouseTrackingButton.title = `鼠标追踪 · ${suffix}`;
-      mouseTrackingButton.setAttribute('aria-label', mouseTrackingButton.title);
-      mouseTrackingButton.setAttribute('aria-pressed', String(preference.mouseEnabled));
+      const suffix = !preference.mouseEnabled ? '关闭' : activeTrackingSource === 'mouse' ? '使用中' : preference.bodyEnabled ? '备用' : '开启';
+      setFeatureButtonState(mouseTrackingButton, '🖱', '鼠标追踪', preference.mouseEnabled, suffix);
     }
-    if (faceTrackingButton) {
+    if (bodyTrackingButton) {
       let suffix = '关闭';
-      if (preference.faceEnabled) {
-        suffix = activeTrackingSource === 'face'
-          ? '使用中'
-          : faceBackendReason === 'camera_open_failed'
-            ? '摄像头不可用'
-            : faceBackendReason === 'face_landmarker_model_missing'
-              ? '检测模型缺失'
-              : '未检测到人脸';
+      if (preference.bodyEnabled) {
+        suffix = faceBackendReason === 'camera_open_failed'
+          ? '开启（摄像头不可用）'
+          : faceBackendReason === 'face_landmarker_model_missing'
+            ? '开启（检测模型缺失）'
+            : faceBackendReason === 'initializing'
+              ? '开启（初始化中）'
+              : faceBackendReason !== 'ok' && activeTrackingSource === 'face'
+                ? '开启（暂未检测到人脸，3 秒后回退鼠标）'
+                : activeTrackingSource === 'face'
+                  ? '使用中'
+                  : activeTrackingSource === 'mouse'
+                    ? '开启（当前由鼠标回退）'
+                    : '开启（等待面部 feature）';
       }
-      faceTrackingButton.title = `面部捕捉 · ${suffix}`;
-      faceTrackingButton.setAttribute('aria-label', faceTrackingButton.title);
-      faceTrackingButton.setAttribute('aria-pressed', String(preference.faceEnabled));
+      setFeatureButtonState(bodyTrackingButton, '🫣', '肢体追踪', preference.bodyEnabled, suffix);
     }
+    updateWatermarkButton();
     if (trackingStatus) {
-      trackingStatus.textContent = activeTrackingSource === 'face'
-        ? '当前追踪：面捕'
-        : activeTrackingSource === 'mouse'
-          ? (preference.faceEnabled ? '当前追踪：鼠标（面捕暂不可用）' : '当前追踪：鼠标')
+      trackingStatus.textContent = preference.bodyEnabled
+        ? '当前追踪：肢体追踪'
+        : preference.mouseEnabled
+          ? '当前追踪：鼠标追踪'
           : '当前追踪：关闭';
     }
   }
 
-  function renderTrackingButtons() {
+  function renderFeatureButtons() {
     mouseTrackingButton = undefined;
-    faceTrackingButton = undefined;
-    if (!editButtons || !live2dModel) return;
+    bodyTrackingButton = undefined;
+    if (!editFeatureButtons) return;
+    editFeatureButtons.replaceChildren();
+    if (!live2dModel) return;
     const preference = ensureTrackingPreference();
+    if (watermarkParameterIds.size || watermarkPartIds.length) editFeatureButtons.appendChild(watermarkToggle);
     if (activeModelConfig.tracking?.mouse?.supported) {
-      mouseTrackingButton = createTrackingButton('🖱', '鼠标追踪', preference.mouseEnabled, () => {
+      mouseTrackingButton = createFeatureButton('🖱', '鼠标追踪', preference.mouseEnabled, () => {
         preference.mouseEnabled = !preference.mouseEnabled;
         saveCharacterTracking();
+        resolveTrackingSource(performance.now());
         syncMouseTrackingSubscription();
         updateTrackingUi();
       });
-      editButtons.appendChild(mouseTrackingButton);
+      editFeatureButtons.appendChild(mouseTrackingButton);
     }
-    if (activeModelConfig.tracking?.face?.supported) {
-      faceTrackingButton = createTrackingButton('◉', '面部捕捉', preference.faceEnabled, () => {
-        preference.faceEnabled = !preference.faceEnabled;
+    if (bodyTrackingSupported()) {
+      bodyTrackingButton = createFeatureButton('🫣', '肢体追踪', preference.bodyEnabled, () => {
+        preference.bodyEnabled = !preference.bodyEnabled;
         faceValidSince = 0;
         faceLastValidAt = 0;
         faceTarget = {};
-        faceBackendReason = preference.faceEnabled ? 'initializing' : 'disabled';
+        faceBackendReason = preference.bodyEnabled ? 'initializing' : 'disabled';
         saveCharacterTracking();
         emitFaceTrackingState();
+        resolveTrackingSource(performance.now());
         updateTrackingUi();
       });
-      editButtons.appendChild(faceTrackingButton);
+      editFeatureButtons.appendChild(bodyTrackingButton);
     }
     updateTrackingUi();
   }
@@ -269,7 +304,8 @@
   function renderModelButtons() {
     renderConfiguredButtons(homeButtons, activeModelConfig.homeButtons);
     renderConfiguredButtons(editButtons, activeModelConfig.editButtons);
-    renderTrackingButtons();
+    renderFeatureButtons();
+    resolveTrackingSource(performance.now());
     syncMouseTrackingSubscription();
     emitFaceTrackingState();
   }
@@ -286,7 +322,9 @@
   function setAdjustment(enabled) {
     adjustmentEnabled = Boolean(enabled);
     dragState = undefined;
+    modelDragActive = false;
     updateAdjustmentButton();
+    resolveTrackingSource(performance.now());
     syncMouseTrackingSubscription();
     updateTrackingUi();
   }
@@ -408,20 +446,19 @@
 
   function resolveTrackingSource(now) {
     const preference = currentTrackingPreference();
+    const faceRequested = faceFeatureEnabled(preference);
     let next = 'none';
-    if (!adjustmentEnabled) {
-      const faceGraceActive = activeTrackingSource === 'face'
-        && preference.faceEnabled
-        && faceLastValidAt
-        && now - faceLastValidAt <= 3000;
-      const faceStable = preference.faceEnabled
-        && faceValidSince
-        && now - faceValidSince >= 400
-        && faceLastValidAt
-        && now - faceLastValidAt <= 3000;
-      if (faceGraceActive || faceStable) next = 'face';
-      else if (preference.mouseEnabled && activeModelConfig.tracking?.mouse?.supported) next = 'mouse';
-    }
+    const faceGraceActive = activeTrackingSource === 'face'
+      && faceRequested
+      && faceLastValidAt
+      && now - faceLastValidAt < FACE_LOSS_FALLBACK_MS;
+    const faceStable = faceRequested
+      && faceValidSince
+      && now - faceValidSince >= FACE_RECOVERY_STABLE_MS
+      && faceLastValidAt
+      && now - faceLastValidAt < FACE_LOSS_FALLBACK_MS;
+    if (faceGraceActive || faceStable) next = 'face';
+    else if (preference.mouseEnabled && activeModelConfig.tracking?.mouse?.supported) next = 'mouse';
     if (next !== activeTrackingSource) {
       pendingTrackingRelease = new Set(Object.keys(currentTrackingValues));
       activeTrackingSource = next;
@@ -600,6 +637,8 @@
         clientY: event.clientY,
         view: { ...currentView() },
       };
+      modelDragActive = true;
+      syncMouseTrackingSubscription();
       view.setPointerCapture?.(event.pointerId);
     });
     view.addEventListener('pointermove', (event) => {
@@ -627,6 +666,8 @@
       event.stopPropagation();
       if (view.hasPointerCapture?.(event.pointerId)) view.releasePointerCapture(event.pointerId);
       dragState = undefined;
+      modelDragActive = false;
+      syncMouseTrackingSubscription();
       saveCharacterViews();
     };
     view.addEventListener('pointerup', finishDrag);
@@ -701,8 +742,12 @@
     lastFaceSequence = 0;
     currentTrackingValues = {};
     pendingTrackingRelease = new Set();
+    modelDragActive = false;
     homeButtons?.replaceChildren();
     editButtons?.replaceChildren();
+    editFeatureButtons?.replaceChildren();
+    mouseTrackingButton = undefined;
+    bodyTrackingButton = undefined;
     circleTrace = undefined;
     layer?.classList.remove('has-model');
     layer?.classList.remove('has-live2d');
@@ -950,24 +995,29 @@
     if (name) live2dModel.expression(name).catch((error) => console.warn('Live2D expression failed:', error));
   }
 
-  function semanticFaceTarget(payload) {
+  function mirroredFaceSemanticTarget(payload) {
+    // Product rule: the avatar behaves like a mirror image.
+    // MediaPipe head pitch uses the opposite vertical sign from the model semantic used here,
+    // while eyeY is already positive-up.
     return {
-      headX: payload.head?.x,
-      headY: payload.head?.y,
-      headZ: payload.head?.z,
-      bodyX: payload.body?.x,
-      bodyY: payload.body?.y,
-      bodyZ: payload.body?.z,
-      eyeX: payload.eyes?.x,
+      headX: -payload.head?.x,
+      headY: -payload.head?.y,
+      headZ: -payload.head?.z,
+      bodyX: -payload.body?.x,
+      bodyY: -payload.body?.y,
+      bodyZ: -payload.body?.z,
+      eyeX: -payload.eyes?.x,
       eyeY: payload.eyes?.y,
-      eyeLOpen: payload.eyes?.leftOpen,
-      eyeROpen: payload.eyes?.rightOpen,
+      // Real-model validation: mirror response requires swapping blink L/R.
+      eyeLOpen: payload.eyes?.rightOpen,
+      eyeROpen: payload.eyes?.leftOpen,
       browLY: payload.brows?.leftY,
       browRY: payload.brows?.rightY,
       browLForm: payload.brows?.form,
       browRForm: payload.brows?.form,
       mouthOpen: payload.mouth?.open,
       mouthForm: payload.mouth?.smile,
+      // Real-model validation: Cubism mouthX already mirrors the camera semantic.
       mouthX: payload.mouth?.x,
       mouthPucker: payload.mouth?.pucker,
       mouthShrug: payload.mouth?.shrug,
@@ -982,7 +1032,7 @@
     lastFaceSequence = payload.sequence;
     const now = performance.now();
     if (payload.valid === true) {
-      const next = Object.fromEntries(Object.entries(semanticFaceTarget(payload)).filter(([, value]) => (
+      const next = Object.fromEntries(Object.entries(mirroredFaceSemanticTarget(payload)).filter(([, value]) => (
         Number.isFinite(value) && value >= -2 && value <= 2
       )));
       if (!Object.keys(next).length) return;
@@ -1054,7 +1104,9 @@
       const preference = currentTrackingPreference();
       return {
         mouseEnabled: Boolean(preference.mouseEnabled),
-        faceEnabled: Boolean(preference.faceEnabled && activeModelConfig.tracking?.face?.supported),
+        modelReady: Boolean(live2dModel && activeModelConfig?.version === 1),
+        bodyEnabled: Boolean(preference.bodyEnabled && bodyTrackingSupported()),
+        faceFeatureEnabled: faceFeatureEnabled(preference),
         activeSource: activeTrackingSource,
         generation,
       };

@@ -157,19 +157,37 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 }
 
 .character-home-buttons,
-.character-edit-buttons {
+.character-edit-buttons,
+.character-edit-feature-buttons {
   position: absolute;
   left: 8px;
-  bottom: 28px;
   z-index: 2;
   display: none;
-  flex-direction: column-reverse;
   align-items: center;
-  gap: 0;
   -webkit-app-region: no-drag;
 }
 
+.character-home-buttons {
+  bottom: 28px;
+  flex-direction: column-reverse;
+  gap: 0;
+}
+
+.character-edit-buttons {
+  bottom: 72px;
+  flex-direction: column;
+  gap: 0;
+}
+
+.character-edit-feature-buttons {
+  bottom: 8px;
+  z-index: 102;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .character-model-button {
+  position: relative;
   width: 20px;
   height: 20px;
   display: flex;
@@ -179,7 +197,7 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1;
   padding: 0;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -187,11 +205,27 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
   -webkit-app-region: no-drag;
 }
 
+.character-model-button.is-off::after {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 50%;
+  height: 2px;
+  border-radius: 2px;
+  background: #e53935;
+  box-shadow: 0 0 1px rgba(255, 255, 255, 0.9);
+  transform: rotate(-45deg);
+  transform-origin: center;
+  pointer-events: none;
+}
+
 .miku-3d-layer.has-live2d:not(.is-adjusting) .character-home-buttons:not(:empty) {
   display: flex;
 }
 
-.miku-3d-layer.has-live2d.is-adjusting .character-edit-buttons:not(:empty) {
+.miku-3d-layer.has-live2d.is-adjusting .character-edit-buttons:not(:empty),
+.miku-3d-layer.has-live2d.is-adjusting .character-edit-feature-buttons:not(:empty) {
   display: flex;
 }
 
@@ -207,14 +241,15 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 
 .character-tracking-status {
   position: absolute;
-  left: 30px;
-  bottom: 31px;
-  z-index: 2;
+  right: 8px;
+  bottom: 8px;
+  z-index: 102;
   display: none;
-  max-width: 150px;
+  max-width: calc(100% - 44px);
   color: var(--text-secondary);
   font-size: 9px;
   line-height: 1.2;
+  text-align: right;
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
   pointer-events: none;
@@ -222,6 +257,12 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 
 .miku-3d-layer.has-live2d.is-adjusting .character-tracking-status {
   display: block;
+}
+
+.miku-3d-layer.is-adjusting .character-home-buttons,
+.miku-3d-layer:not(.is-adjusting) .character-edit-buttons,
+.miku-3d-layer:not(.is-adjusting) .character-edit-feature-buttons {
+  display: none;
 }
 
 .miku-3d-layer.is-adjusting .character-adjust-toggle {
@@ -243,46 +284,6 @@ button, input, .settings-panel, .report-card, .timer-overlay, .talent-overlay, .
 
 .miku-3d-layer.is-adjusting canvas {
   cursor: move;
-}
-
-.character-watermark-toggle {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  z-index: 102;
-  min-width: 56px;
-  height: 24px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0 8px;
-  border: 1px solid rgba(57, 197, 187, 0.45);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #287f78;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  box-shadow: 0 2px 8px rgba(28, 65, 76, 0.14);
-  transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
-  -webkit-app-region: no-drag;
-}
-
-.miku-3d-layer.is-adjusting.has-watermark-control .character-watermark-toggle {
-  display: flex;
-}
-
-.character-watermark-toggle:hover {
-  color: #176a64;
-  background: #ffffff;
-  transform: translateY(-1px);
-}
-
-.character-watermark-toggle[aria-pressed="true"] {
-  border-color: rgba(107, 122, 141, 0.3);
-  color: #59697b;
-  background: rgba(242, 246, 248, 0.92);
 }
 
 .character-adjust-help {

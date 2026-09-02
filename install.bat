@@ -4,7 +4,7 @@ chcp 65001 >nul
 
 echo.
 echo  ==========================================
-echo  ^|   Miku Cure - Install Script v1.2.2   ^|
+echo  ^|   Miku Cure - Install Script v1.2.3   ^|
 echo  ==========================================
 echo.
 
