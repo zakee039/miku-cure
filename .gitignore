@@ -92,10 +92,9 @@ desktop.ini
 # ── 可选：媒体资源过大时取消注释 ─────────────────────
 # miku/
 
-# Character model assets are user-provided and may have separate redistribution terms.
-miku/models/**
-!miku/models/**/
-!miku/models/**/miku-cure.config.json
+# Bundled Live2D model assets are tracked with the application.
+# Keep only the duplicate source archives out of Git.
+miku/models/*.rar
 
 # Local release and verification scratch directories
 .release-staging-*/

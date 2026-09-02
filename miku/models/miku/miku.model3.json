@@ -1,0 +1,31 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "miku.moc3",
+		"Textures": [
+			"miku.4096/texture_00.png",
+			"miku.4096/texture_01.png",
+			"miku.4096/texture_02.png",
+			"miku.4096/texture_03.png",
+			"miku.4096/texture_04.png",
+			"miku.4096/texture_05.png"
+		],
+		"Physics": "miku.physics3.json",
+		"DisplayInfo": "miku.cdi3.json"
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeROpen",
+				"ParamEyeLOpen"
+			]
+		}
+	]
+}
